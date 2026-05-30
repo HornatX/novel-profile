@@ -4,64 +4,64 @@
 
 /* 1. 彻底隐藏顶部的“笔记属性”标题行 */
 body .is-novel-profile .metadata-properties-heading {
-    display: none !important;
+    display: none ;
 }
 
 /* 2. 主容器 Flex 布局 */
 body .is-novel-profile .metadata-container {
     display: flex !important;
-    flex-direction: row !important;
+    flex-direction: row ;
     
     /* 【核心魔法 1】：强制拉伸！让左右两边永远保持一样的高度。
        右侧属性越多，整个容器越高，左侧的图片外壳就跟着变高！ */
-    align-items: stretch !important; 
+    align-items: stretch ; 
     
-    gap: 50px !important;
-    background-color: var(--background-secondary) !important;
-    padding: 20px 20px 20px 20px !important;
-    border-radius: 12px !important;
-    margin: 15px 0 25px 0 !important;
+    gap: 50px ;
+    background-color: var(--background-secondary) ;
+    padding: 20px 20px 20px 20px ;
+    border-radius: 12px ;
+    margin: 15px 0 25px 0 ;
     border: 1px solid var(--background-modifier-border);
 }
 
 /* 3. 左侧图片外壳：只锁定宽度，高度由父容器自动拉伸 */
 body .is-novel-profile .np-image-container {
-    width: var(--np-image-width, 150px) !important;
-    flex-shrink: 0 !important; 
-    display: block !important;
-    background: transparent !important; 
-    border: none !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    margin: 0 !important;
+    width: var(--np-image-width, 150px) ;
+    flex-shrink: 0 ; 
+    display: block ;
+    background: transparent ; 
+    border: none ;
+    box-shadow: none ;
+    padding: 0 ;
+    margin: 0 ;
 }
 
 /* 4. 图片本体：动态填满、拒绝压扁 */
 body .is-novel-profile .np-image-container img {
-    width: 100% !important;
+    width: 100% ;
     
     /* 【核心魔法 2】：高度设为 100%，让它填满被拉长的外壳 */
-    height: 100% !important; 
-    max-height: none !important; 
+    height: 100% ; 
+    max-height: none ; 
     
     /* 【彻底解除限制】：取消之前的固定比例 */
-    aspect-ratio: auto !important; 
+    aspect-ratio: auto ; 
     
     /* 【核心魔法 3】：当图片被拉长或压扁时，像壁纸一样智能居中填满，自动裁切多余部分，绝对不变形！ */
-    object-fit: cover !important; 
+    object-fit: cover ; 
     
-    display: block !important;
-    border-radius: 12px !important; 
+    display: block ;
+    border-radius: 12px ; 
 }
 
 /* 5. 右侧属性内容区：占据剩余空间，它的高度决定了所有人的高度 */
 body .is-novel-profile .metadata-content {
-    flex-grow: 1 !important;
-    width: 100% !important;
-    display: flex !important;
-    flex-direction: column !important;
+    flex-grow: 1 ;
+    width: 100% ;
+    display: flex ;
+    flex-direction: column ;
     /* 让右边文字在垂直方向稍微居中，看起来更协调 */
-    justify-content: center !important; 
+    justify-content: center ; 
 }
 
 
@@ -74,7 +74,7 @@ body .is-novel-profile .metadata-property:has(.metadata-link[data-href*=".jpg"])
 body .is-novel-profile .metadata-property:has(.metadata-link[data-href*=".png"]),
 body .is-novel-profile .metadata-property:has(.metadata-link[data-href*=".webp"]),
 body .is-novel-profile .metadata-property:has(.metadata-link[data-href*=".jpeg"]) {
-    display: none !important; 
+    display: none ; 
 }
 
 /* 淡化图标亮度，让视觉焦点集中在文字上 */
@@ -86,10 +86,11 @@ body .is-novel-profile .metadata-property-icon {
 /* 强制显示内容区（防折叠崩溃双保险）                           */
 /* ======================================================= */
 body .is-novel-profile .metadata-container.is-collapsed .metadata-content {
-    display: flex !important;
+    display: flex ;
 }
+
 
 body .is-novel-profile .np-image-container img {
 
-    box-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7) !important; 
+    box-shadow: 1px 1px 2px rgba(0, 0, 0, 0.7) ; 
 }
