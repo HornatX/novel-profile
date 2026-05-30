@@ -36,7 +36,8 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
   constructor() {
     super(...arguments);
     this.isPluginActive = true;
-    this.debouncedProcessLeaves = (0, import_obsidian.debounce)(this.processAllLeaves.bind(this), 200, true);
+    // 优化：统一使用 debounce（防抖）处理视图刷新，避免性能浪费和重绘闪烁
+    this.debouncedProcessLeaves = (0, import_obsidian.debounce)(this.processAllLeaves.bind(this), 250, true);
   }
   async onload() {
     await this.loadSettings();
@@ -66,12 +67,8 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     this.updateDynamicStyles();
     this.addSettingTab(new NovelProfileSettingTab(this.app, this));
     this.registerEvent(this.app.workspace.on("layout-change", () => this.debouncedProcessLeaves()));
-    this.registerEvent(this.app.workspace.on("file-open", () => {
-      setTimeout(() => this.processAllLeaves(), 150);
-    }));
-    this.registerEvent(this.app.metadataCache.on("changed", (file) => {
-      setTimeout(() => this.processAllLeaves(), 100);
-    }));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.debouncedProcessLeaves()));
+    this.registerEvent(this.app.metadataCache.on("changed", () => this.debouncedProcessLeaves()));
     this.app.workspace.onLayoutReady(() => {
       this.processAllLeaves();
     });
@@ -108,12 +105,12 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
   }
   processAllLeaves() {
     const leaves = this.app.workspace.getLeavesOfType("markdown");
+    const folders = this.settings.targetFolders.split(/[,，]+/).map((f) => f.trim()).filter((f) => f.length > 0);
     leaves.forEach((leaf) => {
       const view = leaf.view;
       if (!view || !view.file) return;
       const file = view.file;
       const container = view.containerEl;
-      const folders = this.settings.targetFolders.split(/[,，]/).map((f) => f.trim()).filter((f) => f.length > 0);
       const isTarget = this.isPluginActive && (folders.length === 0 || folders.some((folder) => {
         return file.path.startsWith(folder + "/") || file.parent?.path === folder || file.parent?.name === folder;
       }));
@@ -131,13 +128,11 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     if (!metadataContainer) return;
     if (metadataContainer.classList.contains("is-collapsed")) {
       const heading = metadataContainer.querySelector(".metadata-properties-heading");
-      if (heading) {
-        heading.click();
-      }
+      heading?.click();
     }
     const cache = this.app.metadataCache.getFileCache(file);
     const frontmatter = cache?.frontmatter;
-    if (!frontmatter) {
+    if (!frontmatter || !frontmatter[this.settings.imagePropertyName]) {
       this.removeInjectedImage(view);
       return;
     }
@@ -146,7 +141,7 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     if (typeof imagePropValue === "string") {
       const linkMatch = imagePropValue.match(/\[\[(.*?)\]\]/);
       if (linkMatch) {
-        const linkText = linkMatch[1].split("|")[0];
+        const linkText = linkMatch[1].split("|")[0].trim();
         const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, file.path);
         if (linkedFile) {
           imagePath = this.app.vault.getResourcePath(linkedFile);
@@ -157,34 +152,30 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     }
     if (imagePath) {
       let imgContainer = metadataContainer.querySelector(".np-image-container");
+      let imgEl;
       if (!imgContainer) {
         imgContainer = document.createElement("div");
         imgContainer.className = "np-image-container";
-        const imgEl2 = document.createElement("img");
-        imgContainer.appendChild(imgEl2);
+        imgEl = document.createElement("img");
+        imgContainer.appendChild(imgEl);
         metadataContainer.prepend(imgContainer);
+      } else {
+        imgEl = imgContainer.querySelector("img");
       }
-      const imgEl = imgContainer.querySelector("img");
-      if (imgEl.src !== imagePath) {
+      if (imgEl.dataset.originalSrc !== imagePath) {
         imgEl.src = imagePath;
+        imgEl.dataset.originalSrc = imagePath;
       }
     } else {
       this.removeInjectedImage(view);
     }
   }
   removeInjectedImage(view) {
-    const metadataContainer = view.contentEl.querySelector(".metadata-container");
-    if (metadataContainer) {
-      const imgContainer = metadataContainer.querySelector(".np-image-container");
-      if (imgContainer) imgContainer.remove();
-    }
+    const imgContainer = view.contentEl.querySelector(".metadata-container .np-image-container");
+    imgContainer?.remove();
   }
   updateDynamicStyles() {
-    let css = `
-			:root {
-				--np-image-width: ${this.settings.imageWidth}px;
-			}
-		`;
+    let css = `:root { --np-image-width: ${this.settings.imageWidth}px; }`;
     if (this.settings.hidePropertyNames) {
       css += `
 				body .is-novel-profile .metadata-property-key { display: none !important; }
@@ -193,39 +184,31 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
 			`;
     }
     if (this.settings.hideAddButton) {
-      css += `
-				body .is-novel-profile .metadata-add-button { display: none !important; }
-			`;
+      css += `body .is-novel-profile .metadata-add-button { display: none !important; }`;
     }
-    const propsToHide = this.settings.hideProperties.split(/[,，]/).map((p) => p.trim()).filter((p) => p.length > 0);
+    const propsToHide = this.settings.hideProperties.split(/[,，]+/).map((p) => p.trim()).filter((p) => p.length > 0);
+    if (!propsToHide.includes(this.settings.imagePropertyName)) {
+      propsToHide.push(this.settings.imagePropertyName);
+    }
     propsToHide.forEach((prop) => {
+      const safeProp = CSS.escape(prop);
       css += `
-				body .is-novel-profile .metadata-property[data-property-key="${prop}"] {
+				body .is-novel-profile .metadata-property[data-property-key="${safeProp}"] {
 					display: none !important;
 				}
 			`;
     });
     css += `
-			/* 1. \u7981\u7528\u6574\u4E2A\u5C5E\u6027\u533A\u57DF\u7684\u9F20\u6807\u4E8B\u4EF6\uFF08\u963B\u65AD\u70B9\u51FB\u547C\u51FA\u7F16\u8F91\u6846\uFF09 */
-			body.np-edit-locked .is-novel-profile .metadata-properties {
-				pointer-events: none !important;
-			}
-			
-			/* 2. \u7CBE\u51C6\u70B9\u4EAE\u771F\u5B9E\u94FE\u63A5\uFF08a\u6807\u7B7E\uFF09\uFF0C\u8BA9\u4F60\u4F9D\u7136\u53EF\u4EE5\u70B9\u51FB\u53CC\u94FE\u63A5\u8DF3\u8F6C\uFF0C\u4F46\u4E0D\u4F1A\u89E6\u53D1\u4E0B\u62C9\u6846 */
+			body.np-edit-locked .is-novel-profile .metadata-properties { pointer-events: none !important; }
 			body.np-edit-locked .is-novel-profile a.internal-link,
 			body.np-edit-locked .is-novel-profile a.external-link,
 			body.np-edit-locked .is-novel-profile .metadata-link-inner {
 				pointer-events: auto !important;
 				cursor: pointer !important;
 			}
-			
-			/* 3. \u9690\u85CF\u6240\u6709\u5220\u9664/\u6DFB\u52A0\u6309\u94AE\uFF0C\u53D6\u6D88\u8F93\u5165\u6846\u7684\u9AD8\u4EAE\u4F2A\u88C5 */
-			body.np-edit-locked .is-novel-profile .multi-select-pill-remove-button {
-				display: none !important;
-			}
-			body.np-edit-locked .is-novel-profile .metadata-add-button {
-				display: none !important;
-			}
+			body.np-edit-locked .is-novel-profile .multi-select-pill-remove-button,
+			body.np-edit-locked .is-novel-profile .metadata-add-button,
+			body.np-edit-locked .is-novel-profile .metadata-property-value svg { display: none !important; }
 			body.np-edit-locked .is-novel-profile .metadata-property-value input,
 			body.np-edit-locked .is-novel-profile .metadata-property-value div[contenteditable="true"],
 			body.np-edit-locked .is-novel-profile .metadata-property-value .metadata-input-text {
@@ -233,9 +216,6 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
 				border: none !important;
 				background-color: transparent !important;
 				cursor: default !important;
-			}
-			body.np-edit-locked .is-novel-profile .metadata-property-value svg {
-				display: none !important;
 			}
 		`;
     this.dynamicStyleElement.textContent = css;

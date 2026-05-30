@@ -7,7 +7,7 @@ interface NovelProfileSettings {
 	hidePropertyNames: boolean;
 	hideAddButton: boolean;
 	hideProperties: string;
-	defaultLocked: boolean; 
+	defaultLocked: boolean;
 }
 
 const DEFAULT_SETTINGS: NovelProfileSettings = {
@@ -17,16 +17,17 @@ const DEFAULT_SETTINGS: NovelProfileSettings = {
 	hidePropertyNames: false,
 	hideAddButton: true,
 	hideProperties: 'tags,aliases',
-	defaultLocked: true 
+	defaultLocked: true
 }
 
 export default class NovelProfilePlugin extends Plugin {
 	settings: NovelProfileSettings;
 	dynamicStyleElement: HTMLStyleElement;
 	isEditLocked: boolean;
-	isPluginActive: boolean = true; 
+	isPluginActive: boolean = true;
 	
-	debouncedProcessLeaves = debounce(this.processAllLeaves.bind(this), 200, true);
+	// 优化：统一使用 debounce（防抖）处理视图刷新，避免性能浪费和重绘闪烁
+	debouncedProcessLeaves = debounce(this.processAllLeaves.bind(this), 250, true);
 
 	async onload() {
 		await this.loadSettings();
@@ -61,14 +62,10 @@ export default class NovelProfilePlugin extends Plugin {
 
 		this.addSettingTab(new NovelProfileSettingTab(this.app, this));
 
+		// 优化：去掉 setTimeout，全部交由防抖函数处理
 		this.registerEvent(this.app.workspace.on('layout-change', () => this.debouncedProcessLeaves()));
-		this.registerEvent(this.app.workspace.on('file-open', () => {
-			setTimeout(() => this.processAllLeaves(), 150); 
-		}));
-		
-		this.registerEvent(this.app.metadataCache.on('changed', (file) => {
-			setTimeout(() => this.processAllLeaves(), 100);
-		}));
+		this.registerEvent(this.app.workspace.on('file-open', () => this.debouncedProcessLeaves()));
+		this.registerEvent(this.app.metadataCache.on('changed', () => this.debouncedProcessLeaves()));
 		
 		this.app.workspace.onLayoutReady(() => {
 			this.processAllLeaves();
@@ -78,6 +75,7 @@ export default class NovelProfilePlugin extends Plugin {
 	updateLockState() {
 		if (this.isEditLocked) {
 			document.body.classList.add('np-edit-locked');
+			// 失去焦点防误触
 			if (document.activeElement instanceof HTMLElement) {
 				document.activeElement.blur();
 			}
@@ -112,15 +110,16 @@ export default class NovelProfilePlugin extends Plugin {
 
 	processAllLeaves() {
 		const leaves = this.app.workspace.getLeavesOfType('markdown');
+		
+		// 优化正则：不仅支持中英逗号，还支持多余空格和连续逗号
+		const folders = this.settings.targetFolders.split(/[,，]+/).map(f => f.trim()).filter(f => f.length > 0);
+
 		leaves.forEach(leaf => {
 			const view = leaf.view as MarkdownView;
 			if (!view || !view.file) return;
 
 			const file = view.file;
 			const container = view.containerEl;
-
-			// 【修复】：使用正则表达式 /[,，]/ 同时支持英文逗号和中文逗号
-			const folders = this.settings.targetFolders.split(/[,，]/).map(f => f.trim()).filter(f => f.length > 0);
 			
 			const isTarget = this.isPluginActive && (folders.length === 0 || folders.some(folder => {
 				return file.path.startsWith(folder + '/') || file.parent?.path === folder || file.parent?.name === folder;
@@ -140,17 +139,16 @@ export default class NovelProfilePlugin extends Plugin {
 		const metadataContainer = view.contentEl.querySelector('.metadata-container');
 		if (!metadataContainer) return;
 
+		// 自动展开属性面板
 		if (metadataContainer.classList.contains('is-collapsed')) {
 			const heading = metadataContainer.querySelector('.metadata-properties-heading') as HTMLElement;
-			if (heading) {
-				heading.click(); 
-			}
+			heading?.click(); 
 		}
 
 		const cache = this.app.metadataCache.getFileCache(file);
 		const frontmatter = cache?.frontmatter;
 
-		if (!frontmatter) {
+		if (!frontmatter || !frontmatter[this.settings.imagePropertyName]) {
 			this.removeInjectedImage(view);
 			return;
 		}
@@ -159,9 +157,10 @@ export default class NovelProfilePlugin extends Plugin {
 		let imagePath = '';
 
 		if (typeof imagePropValue === 'string') {
+			// 优化解析逻辑：容错度更高
 			const linkMatch = imagePropValue.match(/\[\[(.*?)\]\]/);
 			if (linkMatch) {
-				const linkText = linkMatch[1].split('|')[0]; 
+				const linkText = linkMatch[1].split('|')[0].trim(); 
 				const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, file.path);
 				if (linkedFile) {
 					imagePath = this.app.vault.getResourcePath(linkedFile);
@@ -173,16 +172,22 @@ export default class NovelProfilePlugin extends Plugin {
 
 		if (imagePath) {
 			let imgContainer = metadataContainer.querySelector('.np-image-container') as HTMLDivElement;
+			let imgEl: HTMLImageElement;
+			
 			if (!imgContainer) {
 				imgContainer = document.createElement('div');
 				imgContainer.className = 'np-image-container';
-				const imgEl = document.createElement('img');
+				imgEl = document.createElement('img');
 				imgContainer.appendChild(imgEl);
 				metadataContainer.prepend(imgContainer);
+			} else {
+				imgEl = imgContainer.querySelector('img') as HTMLImageElement;
 			}
-			const imgEl = imgContainer.querySelector('img') as HTMLImageElement;
-			if (imgEl.src !== imagePath) {
+
+			// 优化性能：通过自定义 dataset 判断，防止 Obsidian 本地资源路径刷新导致的无效重复渲染
+			if (imgEl.dataset.originalSrc !== imagePath) {
 				imgEl.src = imagePath;
+				imgEl.dataset.originalSrc = imagePath; // 缓存记录
 			}
 		} else {
 			this.removeInjectedImage(view);
@@ -190,19 +195,12 @@ export default class NovelProfilePlugin extends Plugin {
 	}
 
 	removeInjectedImage(view: MarkdownView) {
-		const metadataContainer = view.contentEl.querySelector('.metadata-container');
-		if (metadataContainer) {
-			const imgContainer = metadataContainer.querySelector('.np-image-container');
-			if (imgContainer) imgContainer.remove();
-		}
+		const imgContainer = view.contentEl.querySelector('.metadata-container .np-image-container');
+		imgContainer?.remove();
 	}
 
 	updateDynamicStyles() {
-		let css = `
-			:root {
-				--np-image-width: ${this.settings.imageWidth}px;
-			}
-		`;
+		let css = `:root { --np-image-width: ${this.settings.imageWidth}px; }`;
 
 		if (this.settings.hidePropertyNames) {
 			css += `
@@ -213,43 +211,41 @@ export default class NovelProfilePlugin extends Plugin {
 		}
 
 		if (this.settings.hideAddButton) {
-			css += `
-				body .is-novel-profile .metadata-add-button { display: none !important; }
-			`;
+			css += `body .is-novel-profile .metadata-add-button { display: none !important; }`;
 		}
 
-		// 【修复】：使用正则表达式 /[,，]/ 同时支持英文逗号和中文逗号
-		const propsToHide = this.settings.hideProperties.split(/[,，]/).map(p => p.trim()).filter(p => p.length > 0);
+		// 核心优化：彻底替代 CSS 中的 :has()
+		// 动态获取需要隐藏的属性，自动将 "作为头像的属性名" 也加入隐藏列表
+		const propsToHide = this.settings.hideProperties.split(/[,，]+/).map(p => p.trim()).filter(p => p.length > 0);
+		
+		// 将设定中的“图片”属性直接添加进去隐藏，这就代替了之前那个卡顿的 :has() 选择器
+		if (!propsToHide.includes(this.settings.imagePropertyName)) {
+			propsToHide.push(this.settings.imagePropertyName);
+		}
+
+		// 利用 Obsidian 属性面板自带的 data-property-key，性能是 :has() 的成百上千倍
 		propsToHide.forEach(prop => {
+			// CSS 转义处理避免特殊字符报错
+			const safeProp = CSS.escape(prop);
 			css += `
-				body .is-novel-profile .metadata-property[data-property-key="${prop}"] {
+				body .is-novel-profile .metadata-property[data-property-key="${safeProp}"] {
 					display: none !important;
 				}
 			`;
 		});
 
-		// 【修复双链接误触问题】：精准阻断所有编辑事件，但保留真实链接的点击跳转
+		// 锁定模式的 CSS (保持不变)
 		css += `
-			/* 1. 禁用整个属性区域的鼠标事件（阻断点击呼出编辑框） */
-			body.np-edit-locked .is-novel-profile .metadata-properties {
-				pointer-events: none !important;
-			}
-			
-			/* 2. 精准点亮真实链接（a标签），让你依然可以点击双链接跳转，但不会触发下拉框 */
+			body.np-edit-locked .is-novel-profile .metadata-properties { pointer-events: none !important; }
 			body.np-edit-locked .is-novel-profile a.internal-link,
 			body.np-edit-locked .is-novel-profile a.external-link,
 			body.np-edit-locked .is-novel-profile .metadata-link-inner {
 				pointer-events: auto !important;
 				cursor: pointer !important;
 			}
-			
-			/* 3. 隐藏所有删除/添加按钮，取消输入框的高亮伪装 */
-			body.np-edit-locked .is-novel-profile .multi-select-pill-remove-button {
-				display: none !important;
-			}
-			body.np-edit-locked .is-novel-profile .metadata-add-button {
-				display: none !important;
-			}
+			body.np-edit-locked .is-novel-profile .multi-select-pill-remove-button,
+			body.np-edit-locked .is-novel-profile .metadata-add-button,
+			body.np-edit-locked .is-novel-profile .metadata-property-value svg { display: none !important; }
 			body.np-edit-locked .is-novel-profile .metadata-property-value input,
 			body.np-edit-locked .is-novel-profile .metadata-property-value div[contenteditable="true"],
 			body.np-edit-locked .is-novel-profile .metadata-property-value .metadata-input-text {
@@ -258,9 +254,6 @@ export default class NovelProfilePlugin extends Plugin {
 				background-color: transparent !important;
 				cursor: default !important;
 			}
-			body.np-edit-locked .is-novel-profile .metadata-property-value svg {
-				display: none !important;
-			}
 		`;
 
 		this.dynamicStyleElement.textContent = css;
@@ -268,6 +261,7 @@ export default class NovelProfilePlugin extends Plugin {
 }
 
 class NovelProfileSettingTab extends PluginSettingTab {
+	// ... 这部分（SettingTab）保持原样即可，你的实现没问题 ...
 	plugin: NovelProfilePlugin;
 
 	constructor(app: App, plugin: NovelProfilePlugin) {
