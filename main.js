@@ -36,7 +36,6 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
   constructor() {
     super(...arguments);
     this.isPluginActive = true;
-    // 【优化】防抖处理：防止快速切换页面时过度消耗性能
     this.debouncedProcessLeaves = (0, import_obsidian.debounce)(this.processAllLeaves.bind(this), 200, true);
   }
   async onload() {
@@ -114,7 +113,7 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       if (!view || !view.file) return;
       const file = view.file;
       const container = view.containerEl;
-      const folders = this.settings.targetFolders.split(",").map((f) => f.trim()).filter((f) => f.length > 0);
+      const folders = this.settings.targetFolders.split(/[,，]/).map((f) => f.trim()).filter((f) => f.length > 0);
       const isTarget = this.isPluginActive && (folders.length === 0 || folders.some((folder) => {
         return file.path.startsWith(folder + "/") || file.parent?.path === folder || file.parent?.name === folder;
       }));
@@ -198,7 +197,7 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
 				body .is-novel-profile .metadata-add-button { display: none !important; }
 			`;
     }
-    const propsToHide = this.settings.hideProperties.split(",").map((p) => p.trim()).filter((p) => p.length > 0);
+    const propsToHide = this.settings.hideProperties.split(/[,，]/).map((p) => p.trim()).filter((p) => p.length > 0);
     propsToHide.forEach((prop) => {
       css += `
 				body .is-novel-profile .metadata-property[data-property-key="${prop}"] {
@@ -207,13 +206,20 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
 			`;
     });
     css += `
+			/* 1. \u7981\u7528\u6574\u4E2A\u5C5E\u6027\u533A\u57DF\u7684\u9F20\u6807\u4E8B\u4EF6\uFF08\u963B\u65AD\u70B9\u51FB\u547C\u51FA\u7F16\u8F91\u6846\uFF09 */
 			body.np-edit-locked .is-novel-profile .metadata-properties {
 				pointer-events: none !important;
 			}
-			body.np-edit-locked .is-novel-profile .metadata-link,
-			body.np-edit-locked .is-novel-profile .metadata-link * {
+			
+			/* 2. \u7CBE\u51C6\u70B9\u4EAE\u771F\u5B9E\u94FE\u63A5\uFF08a\u6807\u7B7E\uFF09\uFF0C\u8BA9\u4F60\u4F9D\u7136\u53EF\u4EE5\u70B9\u51FB\u53CC\u94FE\u63A5\u8DF3\u8F6C\uFF0C\u4F46\u4E0D\u4F1A\u89E6\u53D1\u4E0B\u62C9\u6846 */
+			body.np-edit-locked .is-novel-profile a.internal-link,
+			body.np-edit-locked .is-novel-profile a.external-link,
+			body.np-edit-locked .is-novel-profile .metadata-link-inner {
 				pointer-events: auto !important;
+				cursor: pointer !important;
 			}
+			
+			/* 3. \u9690\u85CF\u6240\u6709\u5220\u9664/\u6DFB\u52A0\u6309\u94AE\uFF0C\u53D6\u6D88\u8F93\u5165\u6846\u7684\u9AD8\u4EAE\u4F2A\u88C5 */
 			body.np-edit-locked .is-novel-profile .multi-select-pill-remove-button {
 				display: none !important;
 			}
@@ -243,8 +249,8 @@ var NovelProfileSettingTab = class extends import_obsidian.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "\u5C0F\u8BF4\u89D2\u8272\u5361\u7247\u8BBE\u7F6E" });
-    new import_obsidian.Setting(containerEl).setName("\u751F\u6548\u6587\u4EF6\u5939").setDesc("\u53EA\u6709\u8FD9\u4E9B\u6587\u4EF6\u5939\u5185\u7684\u7B14\u8BB0\u4F1A\u53D8\u6210\u5361\u7247\u6837\u5F0F\u3002\u591A\u4E2A\u6587\u4EF6\u5939\u7528\u9017\u53F7\u5206\u9694\uFF0C\u7559\u7A7A\u5219\u5168\u5C40\u751F\u6548\u3002\u4F8B\u5982: \u89D2\u8272, \u8BBE\u5B9A").addText((text) => text.setPlaceholder("\u89D2\u8272, \u8BBE\u5B9A").setValue(this.plugin.settings.targetFolders).onChange(async (value) => {
+    containerEl.createEl("h2", { text: "\u5C0F\u8BF4\u89D2\u8272\u5361\u7247\u8BBE\u7F6E (Novel Profile)" });
+    new import_obsidian.Setting(containerEl).setName("\u751F\u6548\u6587\u4EF6\u5939").setDesc("\u53EA\u6709\u8FD9\u4E9B\u6587\u4EF6\u5939\u5185\u7684\u7B14\u8BB0\u4F1A\u53D8\u6210\u5361\u7247\u6837\u5F0F\u3002\u652F\u6301\u4E2D\u82F1\u6587\u9017\u53F7\u5206\u9694\u3002\u4F8B\u5982: \u89D2\u8272\uFF0C\u8BBE\u5B9A").addText((text) => text.setPlaceholder("\u89D2\u8272, \u8BBE\u5B9A").setValue(this.plugin.settings.targetFolders).onChange(async (value) => {
       this.plugin.settings.targetFolders = value;
       await this.plugin.saveSettings();
     }));
@@ -264,11 +270,11 @@ var NovelProfileSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.settings.hideAddButton = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("\u9690\u85CF\u7279\u5B9A\u7684\u5C5E\u6027").setDesc("\u8F93\u5165\u4F60\u60F3\u9690\u85CF\u7684\u5C5E\u6027\u540D\u79F0\uFF08\u4E0D\u4F1A\u5220\u9664\u6570\u636E\uFF0C\u53EA\u662F\u770B\u4E0D\u89C1\uFF09\uFF0C\u7528\u9017\u53F7\u5206\u9694\u3002\u4F8B\u5982: tags, aliases").addText((text) => text.setPlaceholder("tags, aliases").setValue(this.plugin.settings.hideProperties).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("\u9690\u85CF\u7279\u5B9A\u7684\u5C5E\u6027").setDesc("\u60F3\u9690\u85CF\u7684\u5C5E\u6027\u540D\u79F0\uFF08\u4E0D\u4F1A\u5220\u9664\u6570\u636E\uFF0C\u53EA\u662F\u770B\u4E0D\u89C1\uFF09\uFF0C\u652F\u6301\u4E2D\u82F1\u6587\u9017\u53F7\u3002\u4F8B\u5982: tags\uFF0Caliases").addText((text) => text.setPlaceholder("tags, aliases").setValue(this.plugin.settings.hideProperties).onChange(async (value) => {
       this.plugin.settings.hideProperties = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("\u9ED8\u8BA4\u9501\u5B9A\u5C5E\u6027 (\u9632\u8BEF\u89E6)").setDesc("\u5F00\u542F\u540E\uFF0C\u6253\u5F00\u5361\u7247\u65F6\u9ED8\u8BA4\u7981\u6B62\u4FEE\u6539\u5C5E\u6027\u5185\u5BB9\u3002\u4F60\u53EF\u4EE5\u901A\u8FC7\u5FEB\u6377\u952E\u6765\u4E34\u65F6\u89E3\u9501\u5B83\u3002").addToggle((toggle) => toggle.setValue(this.plugin.settings.defaultLocked).onChange(async (value) => {
+    new import_obsidian.Setting(containerEl).setName("\u9ED8\u8BA4\u9501\u5B9A\u5C5E\u6027 (\u9632\u8BEF\u89E6)").setDesc("\u5F00\u542F\u540E\uFF0C\u6253\u5F00\u5361\u7247\u65F6\u9ED8\u8BA4\u7981\u6B62\u4FEE\u6539\u5C5E\u6027\u5185\u5BB9\uFF08\u4F46\u53CC\u94FE\u63A5\u4F9D\u7136\u53EF\u70B9\u51FB\u8DF3\u8F6C\uFF09\u3002\u901A\u8FC7\u547D\u4EE4/\u5FEB\u6377\u952E\u6765\u4E34\u65F6\u89E3\u9501\u5B83\u3002").addToggle((toggle) => toggle.setValue(this.plugin.settings.defaultLocked).onChange(async (value) => {
       this.plugin.settings.defaultLocked = value;
       this.plugin.isEditLocked = value;
       this.plugin.updateLockState();

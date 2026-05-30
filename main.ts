@@ -26,7 +26,6 @@ export default class NovelProfilePlugin extends Plugin {
 	isEditLocked: boolean;
 	isPluginActive: boolean = true; 
 	
-	// 【优化】防抖处理：防止快速切换页面时过度消耗性能
 	debouncedProcessLeaves = debounce(this.processAllLeaves.bind(this), 200, true);
 
 	async onload() {
@@ -62,14 +61,11 @@ export default class NovelProfilePlugin extends Plugin {
 
 		this.addSettingTab(new NovelProfileSettingTab(this.app, this));
 
-		// 【优化】减少不必要的频繁调用，使用防抖
 		this.registerEvent(this.app.workspace.on('layout-change', () => this.debouncedProcessLeaves()));
 		this.registerEvent(this.app.workspace.on('file-open', () => {
-			// 【优化】延迟执行：等待 Obsidian 的属性面板渲染完毕
 			setTimeout(() => this.processAllLeaves(), 150); 
 		}));
 		
-		// 【新增】监听文档属性的改变：如果你改了图片名字，立刻刷新！
 		this.registerEvent(this.app.metadataCache.on('changed', (file) => {
 			setTimeout(() => this.processAllLeaves(), 100);
 		}));
@@ -91,7 +87,6 @@ export default class NovelProfilePlugin extends Plugin {
 	}
 
 	onunload() {
-		// 【优化】打扫战场：插件关闭时，清理掉所有的样式和注入的图片，防止残留
 		this.dynamicStyleElement.remove();
 		document.body.classList.remove('np-edit-locked');
 		
@@ -124,9 +119,9 @@ export default class NovelProfilePlugin extends Plugin {
 			const file = view.file;
 			const container = view.containerEl;
 
-			const folders = this.settings.targetFolders.split(',').map(f => f.trim()).filter(f => f.length > 0);
+			// 【修复】：使用正则表达式 /[,，]/ 同时支持英文逗号和中文逗号
+			const folders = this.settings.targetFolders.split(/[,，]/).map(f => f.trim()).filter(f => f.length > 0);
 			
-			// 【优化】增强路径判断：支持判断文件是否直接属于该文件夹
 			const isTarget = this.isPluginActive && (folders.length === 0 || folders.some(folder => {
 				return file.path.startsWith(folder + '/') || file.parent?.path === folder || file.parent?.name === folder;
 			}));
@@ -156,7 +151,7 @@ export default class NovelProfilePlugin extends Plugin {
 		const frontmatter = cache?.frontmatter;
 
 		if (!frontmatter) {
-			this.removeInjectedImage(view); // 如果完全没有属性，也要确保清除残留图片
+			this.removeInjectedImage(view);
 			return;
 		}
 
@@ -166,14 +161,12 @@ export default class NovelProfilePlugin extends Plugin {
 		if (typeof imagePropValue === 'string') {
 			const linkMatch = imagePropValue.match(/\[\[(.*?)\]\]/);
 			if (linkMatch) {
-				// 【优化】处理图片名中的管道符别名，例如 [[图片名.jpg|100]]
 				const linkText = linkMatch[1].split('|')[0]; 
 				const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, file.path);
 				if (linkedFile) {
 					imagePath = this.app.vault.getResourcePath(linkedFile);
 				}
 			} else {
-				// 支持普通的外部图片链接 http:// 或 https://
 				imagePath = imagePropValue.startsWith('http') ? imagePropValue : '';
 			}
 		}
@@ -225,7 +218,8 @@ export default class NovelProfilePlugin extends Plugin {
 			`;
 		}
 
-		const propsToHide = this.settings.hideProperties.split(',').map(p => p.trim()).filter(p => p.length > 0);
+		// 【修复】：使用正则表达式 /[,，]/ 同时支持英文逗号和中文逗号
+		const propsToHide = this.settings.hideProperties.split(/[,，]/).map(p => p.trim()).filter(p => p.length > 0);
 		propsToHide.forEach(prop => {
 			css += `
 				body .is-novel-profile .metadata-property[data-property-key="${prop}"] {
@@ -234,14 +228,22 @@ export default class NovelProfilePlugin extends Plugin {
 			`;
 		});
 
+		// 【修复双链接误触问题】：精准阻断所有编辑事件，但保留真实链接的点击跳转
 		css += `
+			/* 1. 禁用整个属性区域的鼠标事件（阻断点击呼出编辑框） */
 			body.np-edit-locked .is-novel-profile .metadata-properties {
 				pointer-events: none !important;
 			}
-			body.np-edit-locked .is-novel-profile .metadata-link,
-			body.np-edit-locked .is-novel-profile .metadata-link * {
+			
+			/* 2. 精准点亮真实链接（a标签），让你依然可以点击双链接跳转，但不会触发下拉框 */
+			body.np-edit-locked .is-novel-profile a.internal-link,
+			body.np-edit-locked .is-novel-profile a.external-link,
+			body.np-edit-locked .is-novel-profile .metadata-link-inner {
 				pointer-events: auto !important;
+				cursor: pointer !important;
 			}
+			
+			/* 3. 隐藏所有删除/添加按钮，取消输入框的高亮伪装 */
 			body.np-edit-locked .is-novel-profile .multi-select-pill-remove-button {
 				display: none !important;
 			}
@@ -276,11 +278,11 @@ class NovelProfileSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
-		containerEl.createEl('h2', { text: '小说角色卡片设置' });
+		containerEl.createEl('h2', { text: '小说角色卡片设置 (Novel Profile)' });
 
 		new Setting(containerEl)
 			.setName('生效文件夹')
-			.setDesc('只有这些文件夹内的笔记会变成卡片样式。多个文件夹用逗号分隔，留空则全局生效。例如: 角色, 设定')
+			.setDesc('只有这些文件夹内的笔记会变成卡片样式。支持中英文逗号分隔。例如: 角色，设定')
 			.addText(text => text
 				.setPlaceholder('角色, 设定')
 				.setValue(this.plugin.settings.targetFolders)
@@ -334,7 +336,7 @@ class NovelProfileSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('隐藏特定的属性')
-			.setDesc('输入你想隐藏的属性名称（不会删除数据，只是看不见），用逗号分隔。例如: tags, aliases')
+			.setDesc('想隐藏的属性名称（不会删除数据，只是看不见），支持中英文逗号。例如: tags，aliases')
 			.addText(text => text
 				.setPlaceholder('tags, aliases')
 				.setValue(this.plugin.settings.hideProperties)
@@ -345,7 +347,7 @@ class NovelProfileSettingTab extends PluginSettingTab {
 
 		new Setting(containerEl)
 			.setName('默认锁定属性 (防误触)')
-			.setDesc('开启后，打开卡片时默认禁止修改属性内容。你可以通过快捷键来临时解锁它。')
+			.setDesc('开启后，打开卡片时默认禁止修改属性内容（但双链接依然可点击跳转）。通过命令/快捷键来临时解锁它。')
 			.addToggle(toggle => toggle
 				.setValue(this.plugin.settings.defaultLocked)
 				.onChange(async (value) => {
