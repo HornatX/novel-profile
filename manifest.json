@@ -1,0 +1,10 @@
+{
+	"id": "novel-profile",
+	"name": "Novel Profile",
+	"version": "1.0.0",
+	"minAppVersion": "1.0.0",
+	"description": "Transforms the native properties area into an elegant character profile card.)",
+	"author": "hornat",
+	"authorUrl": "",
+	"isDesktopOnly": true
+}
