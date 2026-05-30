@@ -5,6 +5,6 @@
 	"minAppVersion": "1.0.0",
 	"description": "Transforms the native properties area into an elegant character profile card.)",
 	"author": "hornat",
-	"authorUrl": "",
+	"authorUrl": "https://github.com/HornatX/novel-profile",
 	"isDesktopOnly": true
 }
