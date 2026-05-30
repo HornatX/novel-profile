@@ -1,5 +1,5 @@
 /* ======================================================= */
-/* 小说角色卡片核心布局 (自动等高、动态长方形版)               */
+/* 小说角色卡片核心布局 (自动等高、0跳闪原生级版)             */
 /* ======================================================= */
 
 /* 1. 彻底隐藏顶部的“笔记属性”标题行 */
@@ -12,41 +12,31 @@ body .is-novel-profile .metadata-container {
     display: flex !important;
     flex-direction: row;
     align-items: stretch; /* 强制拉伸，左右等高 */
-    gap: 30px; /* 稍微缩小一点间距更协调 */
+    gap: 30px; 
     background-color: var(--background-secondary);
     padding: 20px;
     border-radius: 12px;
     margin: 15px 0 25px 0;
     border: 1px solid var(--background-modifier-border);
-
+    /* 【注意】：此处刻意不写 transition，防止初次打开时发生展开闪烁！ */
 }
 
-/* 3. 左侧图片外壳 */
-body .is-novel-profile .np-image-container {
+/* 3. 【核心魔法重构】：放弃 JS 插入图片，改用 CSS ::before 预先占位和渲染 */
+/* 只要 JS 赋予了 data-has-image="true"，系统会在渲染第一帧直接呈现图片，实现真正 0 跳闪 */
+body .is-novel-profile[data-has-image="true"] .metadata-container::before {
+    content: "";
+    display: block;
     width: var(--np-image-width, 150px);
     flex-shrink: 0;
-    display: block;
-    background: transparent;
-    border: none;
-    box-shadow: none;
-    padding: 0;
-    margin: 0;
-}
-
-/* 4. 图片本体：动态填满、拒绝压扁 */
-body .is-novel-profile .np-image-container img {
-    width: 100%;
-    height: 100%;
-    max-height: none;
-    aspect-ratio: auto;
-    object-fit: cover; /* 智能居中裁切 */
-    display: block;
+    background-image: var(--np-image-url);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
     border-radius: 12px;
-    box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.4); /* 优化阴影显得更自然 */
-    transition: opacity 0.3s ease;
+    box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.4);
 }
 
-/* 5. 右侧属性内容区 */
+/* 4. 右侧属性内容区 */
 body .is-novel-profile .metadata-content {
     flex-grow: 1;
     width: 100%;

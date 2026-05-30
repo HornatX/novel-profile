@@ -26,7 +26,7 @@ export default class NovelProfilePlugin extends Plugin {
 	isEditLocked: boolean;
 	isPluginActive: boolean = true;
 	
-	// 优化：统一使用 debounce（防抖）处理视图刷新，避免性能浪费和重绘闪烁
+	// 防抖处理仅用于窗口变化和属性数据修改时，节省性能
 	debouncedProcessLeaves = debounce(this.processAllLeaves.bind(this), 250, true);
 
 	async onload() {
@@ -62,9 +62,12 @@ export default class NovelProfilePlugin extends Plugin {
 
 		this.addSettingTab(new NovelProfileSettingTab(this.app, this));
 
-		// 优化：去掉 setTimeout，全部交由防抖函数处理
+		// 【修复跳闪的核心】：监听文件打开事件，并在第一时间(同步)执行预渲染标记，抢在 Obsidian 渲染面板之前！
+		this.registerEvent(this.app.workspace.on('file-open', () => {
+			this.processAllLeaves();
+		}));
+		
 		this.registerEvent(this.app.workspace.on('layout-change', () => this.debouncedProcessLeaves()));
-		this.registerEvent(this.app.workspace.on('file-open', () => this.debouncedProcessLeaves()));
 		this.registerEvent(this.app.metadataCache.on('changed', () => this.debouncedProcessLeaves()));
 		
 		this.app.workspace.onLayoutReady(() => {
@@ -75,7 +78,6 @@ export default class NovelProfilePlugin extends Plugin {
 	updateLockState() {
 		if (this.isEditLocked) {
 			document.body.classList.add('np-edit-locked');
-			// 失去焦点防误触
 			if (document.activeElement instanceof HTMLElement) {
 				document.activeElement.blur();
 			}
@@ -88,14 +90,17 @@ export default class NovelProfilePlugin extends Plugin {
 		this.dynamicStyleElement.remove();
 		document.body.classList.remove('np-edit-locked');
 		
+		// 卸载时清理遗留变量和废弃的旧版图片 DOM
 		const leaves = this.app.workspace.getLeavesOfType('markdown');
 		leaves.forEach(leaf => {
 			const view = leaf.view as MarkdownView;
 			if (view && view.containerEl) {
 				view.containerEl.classList.remove('is-novel-profile');
-				this.removeInjectedImage(view);
+				view.containerEl.removeAttribute('data-has-image');
+				view.containerEl.style.removeProperty('--np-image-url');
 			}
 		});
+		document.querySelectorAll('.np-image-container').forEach(el => el.remove());
 	}
 
 	async loadSettings() {
@@ -110,8 +115,6 @@ export default class NovelProfilePlugin extends Plugin {
 
 	processAllLeaves() {
 		const leaves = this.app.workspace.getLeavesOfType('markdown');
-		
-		// 优化正则：不仅支持中英逗号，还支持多余空格和连续逗号
 		const folders = this.settings.targetFolders.split(/[,，]+/).map(f => f.trim()).filter(f => f.length > 0);
 
 		leaves.forEach(leaf => {
@@ -127,29 +130,27 @@ export default class NovelProfilePlugin extends Plugin {
 
 			if (isTarget) {
 				container.classList.add('is-novel-profile');
-				this.injectImage(view, file);
+				// 第一时间算出图片路径并交给 CSS
+				this.updateImageState(view, file);
+				
+				// 防止折叠（稍微延后执行，因为点击展开需要等真实DOM存在）
+				setTimeout(() => this.autoExpandProperties(view), 150);
 			} else {
 				container.classList.remove('is-novel-profile');
-				this.removeInjectedImage(view);
+				container.removeAttribute('data-has-image');
+				container.style.removeProperty('--np-image-url');
 			}
 		});
 	}
 
-	injectImage(view: MarkdownView, file: TFile) {
-		const metadataContainer = view.contentEl.querySelector('.metadata-container');
-		if (!metadataContainer) return;
-
-		// 自动展开属性面板
-		if (metadataContainer.classList.contains('is-collapsed')) {
-			const heading = metadataContainer.querySelector('.metadata-properties-heading') as HTMLElement;
-			heading?.click(); 
-		}
-
+	// 新版逻辑：只解析路径注入 CSS，绝不碰触和修改属性面板的 DOM 结构！
+	updateImageState(view: MarkdownView, file: TFile) {
 		const cache = this.app.metadataCache.getFileCache(file);
 		const frontmatter = cache?.frontmatter;
 
 		if (!frontmatter || !frontmatter[this.settings.imagePropertyName]) {
-			this.removeInjectedImage(view);
+			view.containerEl.removeAttribute('data-has-image');
+			view.containerEl.style.removeProperty('--np-image-url');
 			return;
 		}
 
@@ -157,7 +158,6 @@ export default class NovelProfilePlugin extends Plugin {
 		let imagePath = '';
 
 		if (typeof imagePropValue === 'string') {
-			// 优化解析逻辑：容错度更高
 			const linkMatch = imagePropValue.match(/\[\[(.*?)\]\]/);
 			if (linkMatch) {
 				const linkText = linkMatch[1].split('|')[0].trim(); 
@@ -171,32 +171,21 @@ export default class NovelProfilePlugin extends Plugin {
 		}
 
 		if (imagePath) {
-			let imgContainer = metadataContainer.querySelector('.np-image-container') as HTMLDivElement;
-			let imgEl: HTMLImageElement;
-			
-			if (!imgContainer) {
-				imgContainer = document.createElement('div');
-				imgContainer.className = 'np-image-container';
-				imgEl = document.createElement('img');
-				imgContainer.appendChild(imgEl);
-				metadataContainer.prepend(imgContainer);
-			} else {
-				imgEl = imgContainer.querySelector('img') as HTMLImageElement;
-			}
-
-			// 优化性能：通过自定义 dataset 判断，防止 Obsidian 本地资源路径刷新导致的无效重复渲染
-			if (imgEl.dataset.originalSrc !== imagePath) {
-				imgEl.src = imagePath;
-				imgEl.dataset.originalSrc = imagePath; // 缓存记录
-			}
+			// 直接将状态和图片 URL 交给视图根节点，由 CSS 的 ::before 实现 0 毫秒渲染
+			view.containerEl.setAttribute('data-has-image', 'true');
+			view.containerEl.style.setProperty('--np-image-url', `url("${imagePath}")`);
 		} else {
-			this.removeInjectedImage(view);
+			view.containerEl.removeAttribute('data-has-image');
+			view.containerEl.style.removeProperty('--np-image-url');
 		}
 	}
 
-	removeInjectedImage(view: MarkdownView) {
-		const imgContainer = view.contentEl.querySelector('.metadata-container .np-image-container');
-		imgContainer?.remove();
+	autoExpandProperties(view: MarkdownView) {
+		const metadataContainer = view.contentEl.querySelector('.metadata-container');
+		if (metadataContainer && metadataContainer.classList.contains('is-collapsed')) {
+			const heading = metadataContainer.querySelector('.metadata-properties-heading') as HTMLElement;
+			heading?.click(); 
+		}
 	}
 
 	updateDynamicStyles() {
@@ -214,18 +203,12 @@ export default class NovelProfilePlugin extends Plugin {
 			css += `body .is-novel-profile .metadata-add-button { display: none !important; }`;
 		}
 
-		// 核心优化：彻底替代 CSS 中的 :has()
-		// 动态获取需要隐藏的属性，自动将 "作为头像的属性名" 也加入隐藏列表
 		const propsToHide = this.settings.hideProperties.split(/[,，]+/).map(p => p.trim()).filter(p => p.length > 0);
-		
-		// 将设定中的“图片”属性直接添加进去隐藏，这就代替了之前那个卡顿的 :has() 选择器
 		if (!propsToHide.includes(this.settings.imagePropertyName)) {
 			propsToHide.push(this.settings.imagePropertyName);
 		}
 
-		// 利用 Obsidian 属性面板自带的 data-property-key，性能是 :has() 的成百上千倍
 		propsToHide.forEach(prop => {
-			// CSS 转义处理避免特殊字符报错
 			const safeProp = CSS.escape(prop);
 			css += `
 				body .is-novel-profile .metadata-property[data-property-key="${safeProp}"] {
@@ -234,7 +217,6 @@ export default class NovelProfilePlugin extends Plugin {
 			`;
 		});
 
-		// 锁定模式的 CSS (保持不变)
 		css += `
 			body.np-edit-locked .is-novel-profile .metadata-properties { pointer-events: none !important; }
 			body.np-edit-locked .is-novel-profile a.internal-link,
@@ -261,7 +243,6 @@ export default class NovelProfilePlugin extends Plugin {
 }
 
 class NovelProfileSettingTab extends PluginSettingTab {
-	// ... 这部分（SettingTab）保持原样即可，你的实现没问题 ...
 	plugin: NovelProfilePlugin;
 
 	constructor(app: App, plugin: NovelProfilePlugin) {

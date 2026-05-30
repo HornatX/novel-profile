@@ -36,7 +36,7 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
   constructor() {
     super(...arguments);
     this.isPluginActive = true;
-    // 优化：统一使用 debounce（防抖）处理视图刷新，避免性能浪费和重绘闪烁
+    // 防抖处理仅用于窗口变化和属性数据修改时，节省性能
     this.debouncedProcessLeaves = (0, import_obsidian.debounce)(this.processAllLeaves.bind(this), 250, true);
   }
   async onload() {
@@ -66,8 +66,10 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     document.head.appendChild(this.dynamicStyleElement);
     this.updateDynamicStyles();
     this.addSettingTab(new NovelProfileSettingTab(this.app, this));
+    this.registerEvent(this.app.workspace.on("file-open", () => {
+      this.processAllLeaves();
+    }));
     this.registerEvent(this.app.workspace.on("layout-change", () => this.debouncedProcessLeaves()));
-    this.registerEvent(this.app.workspace.on("file-open", () => this.debouncedProcessLeaves()));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.debouncedProcessLeaves()));
     this.app.workspace.onLayoutReady(() => {
       this.processAllLeaves();
@@ -91,9 +93,11 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       const view = leaf.view;
       if (view && view.containerEl) {
         view.containerEl.classList.remove("is-novel-profile");
-        this.removeInjectedImage(view);
+        view.containerEl.removeAttribute("data-has-image");
+        view.containerEl.style.removeProperty("--np-image-url");
       }
     });
+    document.querySelectorAll(".np-image-container").forEach((el) => el.remove());
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -116,24 +120,22 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       }));
       if (isTarget) {
         container.classList.add("is-novel-profile");
-        this.injectImage(view, file);
+        this.updateImageState(view, file);
+        setTimeout(() => this.autoExpandProperties(view), 150);
       } else {
         container.classList.remove("is-novel-profile");
-        this.removeInjectedImage(view);
+        container.removeAttribute("data-has-image");
+        container.style.removeProperty("--np-image-url");
       }
     });
   }
-  injectImage(view, file) {
-    const metadataContainer = view.contentEl.querySelector(".metadata-container");
-    if (!metadataContainer) return;
-    if (metadataContainer.classList.contains("is-collapsed")) {
-      const heading = metadataContainer.querySelector(".metadata-properties-heading");
-      heading?.click();
-    }
+  // 新版逻辑：只解析路径注入 CSS，绝不碰触和修改属性面板的 DOM 结构！
+  updateImageState(view, file) {
     const cache = this.app.metadataCache.getFileCache(file);
     const frontmatter = cache?.frontmatter;
     if (!frontmatter || !frontmatter[this.settings.imagePropertyName]) {
-      this.removeInjectedImage(view);
+      view.containerEl.removeAttribute("data-has-image");
+      view.containerEl.style.removeProperty("--np-image-url");
       return;
     }
     const imagePropValue = frontmatter[this.settings.imagePropertyName];
@@ -151,28 +153,19 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       }
     }
     if (imagePath) {
-      let imgContainer = metadataContainer.querySelector(".np-image-container");
-      let imgEl;
-      if (!imgContainer) {
-        imgContainer = document.createElement("div");
-        imgContainer.className = "np-image-container";
-        imgEl = document.createElement("img");
-        imgContainer.appendChild(imgEl);
-        metadataContainer.prepend(imgContainer);
-      } else {
-        imgEl = imgContainer.querySelector("img");
-      }
-      if (imgEl.dataset.originalSrc !== imagePath) {
-        imgEl.src = imagePath;
-        imgEl.dataset.originalSrc = imagePath;
-      }
+      view.containerEl.setAttribute("data-has-image", "true");
+      view.containerEl.style.setProperty("--np-image-url", `url("${imagePath}")`);
     } else {
-      this.removeInjectedImage(view);
+      view.containerEl.removeAttribute("data-has-image");
+      view.containerEl.style.removeProperty("--np-image-url");
     }
   }
-  removeInjectedImage(view) {
-    const imgContainer = view.contentEl.querySelector(".metadata-container .np-image-container");
-    imgContainer?.remove();
+  autoExpandProperties(view) {
+    const metadataContainer = view.contentEl.querySelector(".metadata-container");
+    if (metadataContainer && metadataContainer.classList.contains("is-collapsed")) {
+      const heading = metadataContainer.querySelector(".metadata-properties-heading");
+      heading?.click();
+    }
   }
   updateDynamicStyles() {
     let css = `:root { --np-image-width: ${this.settings.imageWidth}px; }`;
