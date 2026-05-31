@@ -8,6 +8,7 @@ interface NovelProfileSettings {
 	hideAddButton: boolean;
 	hideProperties: string;
 	defaultLocked: boolean;
+	popoverOnlyCard: boolean; // 新增：页面预览(悬浮名片)开关
 }
 
 const DEFAULT_SETTINGS: NovelProfileSettings = {
@@ -17,7 +18,8 @@ const DEFAULT_SETTINGS: NovelProfileSettings = {
 	hidePropertyNames: false,
 	hideAddButton: true,
 	hideProperties: 'tags,aliases',
-	defaultLocked: true
+	defaultLocked: true,
+	popoverOnlyCard: true
 }
 
 export default class NovelProfilePlugin extends Plugin {
@@ -26,6 +28,9 @@ export default class NovelProfilePlugin extends Plugin {
 	isEditLocked: boolean;
 	isPluginActive: boolean = true;
 	
+	hoverTimeout: NodeJS.Timeout | null = null;
+	activeCustomPopover: HTMLElement | null = null;
+
 	// 防抖处理仅用于窗口变化和属性数据修改时，节省性能
 	debouncedProcessLeaves = debounce(this.processAllLeaves.bind(this), 250, true);
 
@@ -70,14 +75,160 @@ export default class NovelProfilePlugin extends Plugin {
 		this.registerEvent(this.app.workspace.on('layout-change', () => this.debouncedProcessLeaves()));
 		this.registerEvent(this.app.metadataCache.on('changed', () => this.debouncedProcessLeaves()));
 		
+		// 页面预览 (鼠标悬停) 事件绑定
+		this.registerDomEvent(document, 'mouseover', (e: MouseEvent) => this.handleMouseOver(e));
+		this.registerDomEvent(document, 'mouseout', (e: MouseEvent) => this.handleMouseOut(e));
+
 		this.app.workspace.onLayoutReady(() => {
 			this.processAllLeaves();
 		});
 	}
 
+	checkIsTargetFile(file: TFile): boolean {
+		if (!this.isPluginActive) return false;
+		const folders = this.settings.targetFolders.split(/[,，]+/).map(f => f.trim()).filter(f => f.length > 0);
+		return folders.length === 0 || folders.some(folder => {
+			return file.path.startsWith(folder + '/') || file.parent?.path === folder || file.parent?.name === folder;
+		});
+	}
+
+	// ----------------------------------------------------
+	// 悬浮窗 (页面预览) 核心逻辑
+	// ----------------------------------------------------
+	handleMouseOver(e: MouseEvent) {
+		if (!this.settings.popoverOnlyCard || !this.isPluginActive) return;
+
+		const target = e.target as HTMLElement;
+		const linkEl = target.closest('.internal-link, .cm-hmd-internal-link') as HTMLElement;
+		if (!linkEl) return;
+
+		let path = linkEl.getAttribute('data-href') || linkEl.textContent;
+		if (!path) return;
+		
+		const cleanPath = path.split('|')[0].split('#')[0].split('^')[0].replace(/\[\[|\]\]/g, '').trim();
+		const file = this.app.metadataCache.getFirstLinkpathDest(cleanPath, "");
+		
+		if (!file) {
+			const fallbackFile = this.app.vault.getMarkdownFiles().find(f => f.basename === cleanPath);
+			if(!fallbackFile) return;
+			if (this.checkIsTargetFile(fallbackFile)) {
+				this.triggerCustomPopover(fallbackFile, linkEl);
+			}
+			return;
+		}
+
+		if (this.checkIsTargetFile(file)) {
+			this.triggerCustomPopover(file, linkEl);
+		}
+	}
+
+	triggerCustomPopover(file: TFile, linkEl: HTMLElement) {
+		document.body.classList.add('np-showing-custom-popover');
+		if (this.hoverTimeout) clearTimeout(this.hoverTimeout);
+		this.hoverTimeout = setTimeout(() => {
+			this.buildAndShowCustomPopover(file, linkEl);
+		}, 300); 
+	}
+
+	handleMouseOut(e: MouseEvent) {
+		if (this.hoverTimeout) {
+			clearTimeout(this.hoverTimeout);
+			this.hoverTimeout = null;
+		}
+		this.removeCustomPopover();
+	}
+
+	buildAndShowCustomPopover(file: TFile, linkEl: HTMLElement) {
+		this.removeCustomPopover(); 
+
+		const cache = this.app.metadataCache.getFileCache(file);
+		const frontmatter = cache?.frontmatter;
+		if (!frontmatter) return;
+
+		const popover = document.createElement('div');
+		popover.className = 'np-custom-popover';
+
+		const imgPath = this.resolveImagePath(frontmatter[this.settings.imagePropertyName], file);
+		if (imgPath) {
+			const imgDiv = popover.createDiv('np-custom-popover-img');
+			imgDiv.style.backgroundImage = `url("${imgPath}")`;
+			imgDiv.style.width = `${this.settings.imageWidth}px`;
+		}
+
+		const contentDiv = popover.createDiv('np-custom-popover-content');
+		const hideProps = this.settings.hideProperties.split(/[,，]+/).map(p => p.trim());
+		hideProps.push(this.settings.imagePropertyName); 
+
+		for (const key in frontmatter) {
+			if (hideProps.includes(key)) continue;
+			
+			let val = frontmatter[key];
+			if (val === null || val === undefined || val === '') continue;
+
+			if (Array.isArray(val)) {
+				val = val.map(v => String(v).replace(/\[\[|\]\]/g, '')).join(', ');
+			} else {
+				val = String(val).replace(/\[\[|\]\]/g, ''); 
+			}
+
+			const propRow = contentDiv.createDiv('np-custom-prop');
+			
+			if (!this.settings.hidePropertyNames) {
+				const keySpan = propRow.createSpan('np-custom-key');
+				keySpan.textContent = key;
+			}
+			
+			const valSpan = propRow.createSpan('np-custom-val');
+			valSpan.textContent = val as string;
+		}
+
+		document.body.appendChild(popover);
+		
+		const rect = linkEl.getBoundingClientRect();
+		let top = rect.bottom + 10;
+		let left = rect.left;
+
+		if (top + popover.offsetHeight > window.innerHeight) {
+			top = rect.top - popover.offsetHeight - 10;
+		}
+		
+		popover.style.top = `${top}px`;
+		popover.style.left = `${left}px`;
+
+		this.activeCustomPopover = popover;
+	}
+
+	removeCustomPopover() {
+		if (this.activeCustomPopover) {
+			this.activeCustomPopover.remove();
+			this.activeCustomPopover = null;
+		}
+		document.body.classList.remove('np-showing-custom-popover');
+	}
+
+	resolveImagePath(imagePropValue: any, file: TFile): string {
+		if (!imagePropValue) return '';
+		if (typeof imagePropValue !== 'string') return '';
+
+		const linkMatch = imagePropValue.match(/\[\[(.*?)\]\]/);
+		if (linkMatch) {
+			const linkText = linkMatch[1].split('|')[0].trim(); 
+			const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, file.path);
+			if (linkedFile) return this.app.vault.getResourcePath(linkedFile);
+		} else {
+			return imagePropValue.startsWith('http') ? imagePropValue : '';
+		}
+		return '';
+	}
+
+	// ----------------------------------------------------
+	// 主视图更新逻辑
+	// ----------------------------------------------------
+
 	updateLockState() {
 		if (this.isEditLocked) {
 			document.body.classList.add('np-edit-locked');
+			// 如果当前有光标在输入框中，强制移出，防止误触
 			if (document.activeElement instanceof HTMLElement) {
 				document.activeElement.blur();
 			}
@@ -89,6 +240,7 @@ export default class NovelProfilePlugin extends Plugin {
 	onunload() {
 		this.dynamicStyleElement.remove();
 		document.body.classList.remove('np-edit-locked');
+		this.removeCustomPopover();
 		
 		// 卸载时清理遗留变量和废弃的旧版图片 DOM
 		const leaves = this.app.workspace.getLeavesOfType('markdown');
@@ -115,7 +267,6 @@ export default class NovelProfilePlugin extends Plugin {
 
 	processAllLeaves() {
 		const leaves = this.app.workspace.getLeavesOfType('markdown');
-		const folders = this.settings.targetFolders.split(/[,，]+/).map(f => f.trim()).filter(f => f.length > 0);
 
 		leaves.forEach(leaf => {
 			const view = leaf.view as MarkdownView;
@@ -124,9 +275,7 @@ export default class NovelProfilePlugin extends Plugin {
 			const file = view.file;
 			const container = view.containerEl;
 			
-			const isTarget = this.isPluginActive && (folders.length === 0 || folders.some(folder => {
-				return file.path.startsWith(folder + '/') || file.parent?.path === folder || file.parent?.name === folder;
-			}));
+			const isTarget = this.checkIsTargetFile(file);
 
 			if (isTarget) {
 				container.classList.add('is-novel-profile');
@@ -193,7 +342,8 @@ export default class NovelProfilePlugin extends Plugin {
 
 		if (this.settings.hidePropertyNames) {
 			css += `
-				body .is-novel-profile .metadata-property-key { display: none !important; }
+				body .is-novel-profile .metadata-property-key,
+				.np-custom-key { display: none !important; }
 				body .is-novel-profile .metadata-property-value { width: 100% !important; font-size: 1.1em !important; }
 				body .is-novel-profile .metadata-property { border-bottom: none !important; padding-left: 0 !important; }
 			`;
@@ -329,6 +479,16 @@ class NovelProfileSettingTab extends PluginSettingTab {
 					this.plugin.settings.defaultLocked = value;
 					this.plugin.isEditLocked = value; 
 					this.plugin.updateLockState();
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('悬浮窗仅显示卡片 (写小说纯净模式)')
+			.setDesc('开启后，鼠标悬停在角色双链上时，只弹出一个干净的角色名片，自动隐藏正文内容和标题。')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.popoverOnlyCard)
+				.onChange(async (value) => {
+					this.plugin.settings.popoverOnlyCard = value;
 					await this.plugin.saveSettings();
 				}));
 	}

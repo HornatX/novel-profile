@@ -1,28 +1,20 @@
 /* ======================================================= */
-/* 小说角色卡片核心布局 (自动等高、0跳闪原生级版)             */
+/* 1. 正文内：小说角色卡片核心布局                         */
 /* ======================================================= */
+body .is-novel-profile .metadata-properties-heading { display: none; }
 
-/* 1. 彻底隐藏顶部的“笔记属性”标题行 */
-body .is-novel-profile .metadata-properties-heading {
-    display: none;
-}
-
-/* 2. 主容器 Flex 布局 */
 body .is-novel-profile .metadata-container {
     display: flex !important;
     flex-direction: row;
-    align-items: stretch; /* 强制拉伸，左右等高 */
+    align-items: stretch;
     gap: 30px; 
     background-color: var(--background-secondary);
     padding: 20px;
     border-radius: 12px;
     margin: 15px 0 25px 0;
     border: 1px solid var(--background-modifier-border);
-    /* 【注意】：此处刻意不写 transition，防止初次打开时发生展开闪烁！ */
 }
 
-/* 3. 【核心魔法重构】：放弃 JS 插入图片，改用 CSS ::before 预先占位和渲染 */
-/* 只要 JS 赋予了 data-has-image="true"，系统会在渲染第一帧直接呈现图片，实现真正 0 跳闪 */
 body .is-novel-profile[data-has-image="true"] .metadata-container::before {
     content: "";
     display: block;
@@ -36,7 +28,6 @@ body .is-novel-profile[data-has-image="true"] .metadata-container::before {
     box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.4);
 }
 
-/* 4. 右侧属性内容区 */
 body .is-novel-profile .metadata-content {
     flex-grow: 1;
     width: 100%;
@@ -45,16 +36,88 @@ body .is-novel-profile .metadata-content {
     justify-content: center;
 }
 
+body .is-novel-profile .metadata-property-icon { opacity: 0.4; }
+body .is-novel-profile .metadata-container.is-collapsed .metadata-content { display: flex; }
+
+
 /* ======================================================= */
-/* 细节隐藏与优化                                          */
+/* 2. 独家打造：专属自定义悬浮名片 (终极比例对齐版)         */
 /* ======================================================= */
 
-/* 淡化图标亮度，让视觉焦点集中在文字上 */
-body .is-novel-profile .metadata-property-icon {
-    opacity: 0.4;
+/* 拦截并隐藏 Obsidian 原生的悬浮窗 */
+body.np-showing-custom-popover .hover-popover {
+    display: none !important; 
 }
 
-/* 强制显示内容区（防折叠崩溃双保险） */
-body .is-novel-profile .metadata-container.is-collapsed .metadata-content {
+/* 我们自己建造的完美名片容器 */
+.np-custom-popover {
+    position: fixed;
+    z-index: 99999;
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 12px;
+    padding: 20px 30px 20px 20px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
     display: flex;
+    flex-direction: row;
+    align-items: stretch; /* 保证左右对齐 */
+    gap: 30px;
+    width: max-content; 
+    max-width: 800px;
+    pointer-events: none; 
+    
+    /* 弹出动画 */
+    opacity: 0;
+    transform: translateY(5px);
+    animation: np-popover-fade 0.2s forwards;
+}
+
+@keyframes np-popover-fade {
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 专属悬浮窗：左侧图片 */
+.np-custom-popover-img {
+    flex-shrink: 0;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 12px;
+    box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.4);
+    /* ⭐️ 核心安全网：图片最低高度强制设为宽度的 1.35 倍！
+       这样就算文字只有一两行，图片也永远是标准的竖屏长方形。
+       如果文字有十几行，它又能跟着文字一起向下延伸，完美自适应！ */
+    min-height: calc(var(--np-image-width, 150px) * 1.25);
+}
+
+/* 专属悬浮窗：右侧文字内容 */
+.np-custom-popover-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    /* ⭐️ 放大行距：撑开文字排版，让它跟长方形的图片比例更协调，不再显得空旷 */
+    gap: 18px; 
+}
+
+/* 单行属性 */
+.np-custom-prop {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 15px;
+    /* ⭐️ 放大字号：精准对齐原生属性区的大小 */
+    font-size: 1.1em; 
+}
+
+/* 属性名 (Key) */
+.np-custom-key {
+    color: var(--text-muted);
+    min-width: max-content;
+}
+
+/* 属性值 (Value) */
+.np-custom-val {
+    color: var(--text-normal);
+    font-weight: 500;
+    white-space: nowrap; /* 绝对不许换行 */
 }
