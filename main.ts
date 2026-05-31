@@ -8,7 +8,9 @@ interface NovelProfileSettings {
 	hideAddButton: boolean;
 	hideProperties: string;
 	defaultLocked: boolean;
-	popoverOnlyCard: boolean; // 新增：页面预览(悬浮名片)开关
+	popoverOnlyCard: boolean; 
+	minimalPopover: boolean; // 🌟 新增：极简版页面预览 (图3模式)
+	popoverScale: number; // 🌟 新增：卡片整体缩放比例
 }
 
 const DEFAULT_SETTINGS: NovelProfileSettings = {
@@ -19,8 +21,11 @@ const DEFAULT_SETTINGS: NovelProfileSettings = {
 	hideAddButton: true,
 	hideProperties: 'tags,aliases',
 	defaultLocked: true,
-	popoverOnlyCard: true
+	popoverOnlyCard: true,
+	minimalPopover: false, // 默认关闭，保持原有左右排版
+	popoverScale: 1 // 🌟 新增默认缩放比例为 1.0
 }
+
 
 export default class NovelProfilePlugin extends Plugin {
 	settings: NovelProfileSettings;
@@ -31,7 +36,6 @@ export default class NovelProfilePlugin extends Plugin {
 	hoverTimeout: NodeJS.Timeout | null = null;
 	activeCustomPopover: HTMLElement | null = null;
 
-	// 防抖处理仅用于窗口变化和属性数据修改时，节省性能
 	debouncedProcessLeaves = debounce(this.processAllLeaves.bind(this), 250, true);
 
 	async onload() {
@@ -67,7 +71,6 @@ export default class NovelProfilePlugin extends Plugin {
 
 		this.addSettingTab(new NovelProfileSettingTab(this.app, this));
 
-		// 【修复跳闪的核心】：监听文件打开事件，并在第一时间(同步)执行预渲染标记，抢在 Obsidian 渲染面板之前！
 		this.registerEvent(this.app.workspace.on('file-open', () => {
 			this.processAllLeaves();
 		}));
@@ -75,7 +78,6 @@ export default class NovelProfilePlugin extends Plugin {
 		this.registerEvent(this.app.workspace.on('layout-change', () => this.debouncedProcessLeaves()));
 		this.registerEvent(this.app.metadataCache.on('changed', () => this.debouncedProcessLeaves()));
 		
-		// 页面预览 (鼠标悬停) 事件绑定
 		this.registerDomEvent(document, 'mouseover', (e: MouseEvent) => this.handleMouseOver(e));
 		this.registerDomEvent(document, 'mouseout', (e: MouseEvent) => this.handleMouseOut(e));
 
@@ -92,9 +94,6 @@ export default class NovelProfilePlugin extends Plugin {
 		});
 	}
 
-	// ----------------------------------------------------
-	// 悬浮窗 (页面预览) 核心逻辑
-	// ----------------------------------------------------
 	handleMouseOver(e: MouseEvent) {
 		if (!this.settings.popoverOnlyCard || !this.isPluginActive) return;
 
@@ -148,11 +147,19 @@ export default class NovelProfilePlugin extends Plugin {
 		const popover = document.createElement('div');
 		popover.className = 'np-custom-popover';
 
+		// 🌟 注入极简模式 class
+		if (this.settings.minimalPopover) {
+			popover.classList.add('is-minimal');
+		}
+
 		const imgPath = this.resolveImagePath(frontmatter[this.settings.imagePropertyName], file);
 		if (imgPath) {
+			popover.classList.add('has-image'); // 标记存在图片
 			const imgDiv = popover.createDiv('np-custom-popover-img');
 			imgDiv.style.backgroundImage = `url("${imgPath}")`;
-			imgDiv.style.width = `${this.settings.imageWidth}px`;
+			if (!this.settings.minimalPopover) {
+				imgDiv.style.width = `${this.settings.imageWidth}px`;
+			}
 		}
 
 		const contentDiv = popover.createDiv('np-custom-popover-content');
@@ -188,8 +195,19 @@ export default class NovelProfilePlugin extends Plugin {
 		let top = rect.bottom + 10;
 		let left = rect.left;
 
-		if (top + popover.offsetHeight > window.innerHeight) {
-			top = rect.top - popover.offsetHeight - 10;
+		// 🌟 引入缩放系数计算真实的视觉宽高
+		const scale = this.settings.popoverScale || 1;
+		const popoverHeight = popover.offsetHeight * scale;
+		const popoverWidth = popover.offsetWidth * scale;
+
+		// 如果底部超出屏幕，翻转到鼠标上方
+		if (top + popoverHeight > window.innerHeight) {
+			top = rect.top - popoverHeight - 10;
+		}
+		
+		// 如果右侧超出屏幕，往左平移避免被裁切
+		if (left + popoverWidth > window.innerWidth) {
+			left = window.innerWidth - popoverWidth - 20;
 		}
 		
 		popover.style.top = `${top}px`;
@@ -221,14 +239,9 @@ export default class NovelProfilePlugin extends Plugin {
 		return '';
 	}
 
-	// ----------------------------------------------------
-	// 主视图更新逻辑
-	// ----------------------------------------------------
-
 	updateLockState() {
 		if (this.isEditLocked) {
 			document.body.classList.add('np-edit-locked');
-			// 如果当前有光标在输入框中，强制移出，防止误触
 			if (document.activeElement instanceof HTMLElement) {
 				document.activeElement.blur();
 			}
@@ -242,7 +255,6 @@ export default class NovelProfilePlugin extends Plugin {
 		document.body.classList.remove('np-edit-locked');
 		this.removeCustomPopover();
 		
-		// 卸载时清理遗留变量和废弃的旧版图片 DOM
 		const leaves = this.app.workspace.getLeavesOfType('markdown');
 		leaves.forEach(leaf => {
 			const view = leaf.view as MarkdownView;
@@ -279,10 +291,7 @@ export default class NovelProfilePlugin extends Plugin {
 
 			if (isTarget) {
 				container.classList.add('is-novel-profile');
-				// 第一时间算出图片路径并交给 CSS
 				this.updateImageState(view, file);
-				
-				// 防止折叠（稍微延后执行，因为点击展开需要等真实DOM存在）
 				setTimeout(() => this.autoExpandProperties(view), 150);
 			} else {
 				container.classList.remove('is-novel-profile');
@@ -292,7 +301,6 @@ export default class NovelProfilePlugin extends Plugin {
 		});
 	}
 
-	// 新版逻辑：只解析路径注入 CSS，绝不碰触和修改属性面板的 DOM 结构！
 	updateImageState(view: MarkdownView, file: TFile) {
 		const cache = this.app.metadataCache.getFileCache(file);
 		const frontmatter = cache?.frontmatter;
@@ -320,7 +328,6 @@ export default class NovelProfilePlugin extends Plugin {
 		}
 
 		if (imagePath) {
-			// 直接将状态和图片 URL 交给视图根节点，由 CSS 的 ::before 实现 0 毫秒渲染
 			view.containerEl.setAttribute('data-has-image', 'true');
 			view.containerEl.style.setProperty('--np-image-url', `url("${imagePath}")`);
 		} else {
@@ -387,6 +394,21 @@ export default class NovelProfilePlugin extends Plugin {
 				cursor: default !important;
 			}
 		`;
+
+
+		// 🌟 注入整体缩放的动态动画与基准点
+		const scale = this.settings.popoverScale || 1;
+		css += `
+			.np-custom-popover {
+				transform-origin: top left !important;
+				animation: np-popover-scale-fade 0.2s forwards !important;
+			}
+			@keyframes np-popover-scale-fade {
+				from { opacity: 0; transform: scale(${scale}) translateY(5px); }
+				to { opacity: 1; transform: scale(${scale}) translateY(0); }
+			}
+		`;
+
 
 		this.dynamicStyleElement.textContent = css;
 	}
@@ -460,17 +482,6 @@ class NovelProfileSettingTab extends PluginSettingTab {
 				}));
 
 		new Setting(containerEl)
-			.setName('隐藏特定的属性')
-			.setDesc('想隐藏的属性名称（不会删除数据，只是看不见），支持中英文逗号。例如: tags，aliases')
-			.addText(text => text
-				.setPlaceholder('tags, aliases')
-				.setValue(this.plugin.settings.hideProperties)
-				.onChange(async (value) => {
-					this.plugin.settings.hideProperties = value;
-					await this.plugin.saveSettings();
-				}));
-
-		new Setting(containerEl)
 			.setName('默认锁定属性 (防误触)')
 			.setDesc('开启后，打开卡片时默认禁止修改属性内容（但双链接依然可点击跳转）。通过命令/快捷键来临时解锁它。')
 			.addToggle(toggle => toggle
@@ -489,6 +500,31 @@ class NovelProfileSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.popoverOnlyCard)
 				.onChange(async (value) => {
 					this.plugin.settings.popoverOnlyCard = value;
+					await this.plugin.saveSettings();
+				}));
+
+		// 🌟 新增设置项：极简版页面预览
+		new Setting(containerEl)
+			.setName('极简版页面预览 (竖排卡牌模式)')
+			.setDesc('开启后，悬浮预览将变成一张卡牌（类似图3）：图片铺满作为背景，文字悬浮覆盖在底部。关闭则为默认的左右横排卡片。')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.minimalPopover)
+				.onChange(async (value) => {
+					this.plugin.settings.minimalPopover = value;
+					await this.plugin.saveSettings();
+				}));
+
+
+				// 🌟 新增设置项：悬浮卡片整体缩放
+		new Setting(containerEl)
+			.setName('悬浮卡片整体缩放比例')
+			.setDesc('按比例整体缩放悬浮卡片（包括横排和极简模式）。范围 0.5 到 2.0，默认 1.0。')
+			.addSlider(slider => slider
+				.setLimits(0.5, 2.0, 0.1)
+				.setValue(this.plugin.settings.popoverScale)
+				.setDynamicTooltip()
+				.onChange(async (value) => {
+					this.plugin.settings.popoverScale = value;
 					await this.plugin.saveSettings();
 				}));
 	}

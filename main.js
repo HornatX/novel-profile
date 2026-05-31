@@ -31,7 +31,11 @@ var DEFAULT_SETTINGS = {
   hideAddButton: true,
   hideProperties: "tags,aliases",
   defaultLocked: true,
-  popoverOnlyCard: true
+  popoverOnlyCard: true,
+  minimalPopover: false,
+  // 默认关闭，保持原有左右排版
+  popoverScale: 1
+  // 🌟 新增默认缩放比例为 1.0
 };
 var NovelProfilePlugin = class extends import_obsidian.Plugin {
   constructor() {
@@ -39,7 +43,6 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     this.isPluginActive = true;
     this.hoverTimeout = null;
     this.activeCustomPopover = null;
-    // 防抖处理仅用于窗口变化和属性数据修改时，节省性能
     this.debouncedProcessLeaves = (0, import_obsidian.debounce)(this.processAllLeaves.bind(this), 250, true);
   }
   async onload() {
@@ -87,9 +90,6 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       return file.path.startsWith(folder + "/") || file.parent?.path === folder || file.parent?.name === folder;
     });
   }
-  // ----------------------------------------------------
-  // 悬浮窗 (页面预览) 核心逻辑
-  // ----------------------------------------------------
   handleMouseOver(e) {
     if (!this.settings.popoverOnlyCard || !this.isPluginActive) return;
     const target = e.target;
@@ -132,11 +132,17 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     if (!frontmatter) return;
     const popover = document.createElement("div");
     popover.className = "np-custom-popover";
+    if (this.settings.minimalPopover) {
+      popover.classList.add("is-minimal");
+    }
     const imgPath = this.resolveImagePath(frontmatter[this.settings.imagePropertyName], file);
     if (imgPath) {
+      popover.classList.add("has-image");
       const imgDiv = popover.createDiv("np-custom-popover-img");
       imgDiv.style.backgroundImage = `url("${imgPath}")`;
-      imgDiv.style.width = `${this.settings.imageWidth}px`;
+      if (!this.settings.minimalPopover) {
+        imgDiv.style.width = `${this.settings.imageWidth}px`;
+      }
     }
     const contentDiv = popover.createDiv("np-custom-popover-content");
     const hideProps = this.settings.hideProperties.split(/[,，]+/).map((p) => p.trim());
@@ -162,8 +168,14 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     const rect = linkEl.getBoundingClientRect();
     let top = rect.bottom + 10;
     let left = rect.left;
-    if (top + popover.offsetHeight > window.innerHeight) {
-      top = rect.top - popover.offsetHeight - 10;
+    const scale = this.settings.popoverScale || 1;
+    const popoverHeight = popover.offsetHeight * scale;
+    const popoverWidth = popover.offsetWidth * scale;
+    if (top + popoverHeight > window.innerHeight) {
+      top = rect.top - popoverHeight - 10;
+    }
+    if (left + popoverWidth > window.innerWidth) {
+      left = window.innerWidth - popoverWidth - 20;
     }
     popover.style.top = `${top}px`;
     popover.style.left = `${left}px`;
@@ -189,9 +201,6 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     }
     return "";
   }
-  // ----------------------------------------------------
-  // 主视图更新逻辑
-  // ----------------------------------------------------
   updateLockState() {
     if (this.isEditLocked) {
       document.body.classList.add("np-edit-locked");
@@ -244,7 +253,6 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       }
     });
   }
-  // 新版逻辑：只解析路径注入 CSS，绝不碰触和修改属性面板的 DOM 结构！
   updateImageState(view, file) {
     const cache = this.app.metadataCache.getFileCache(file);
     const frontmatter = cache?.frontmatter;
@@ -327,6 +335,17 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
 				cursor: default !important;
 			}
 		`;
+    const scale = this.settings.popoverScale || 1;
+    css += `
+			.np-custom-popover {
+				transform-origin: top left !important;
+				animation: np-popover-scale-fade 0.2s forwards !important;
+			}
+			@keyframes np-popover-scale-fade {
+				from { opacity: 0; transform: scale(${scale}) translateY(5px); }
+				to { opacity: 1; transform: scale(${scale}) translateY(0); }
+			}
+		`;
     this.dynamicStyleElement.textContent = css;
   }
 };
@@ -359,10 +378,6 @@ var NovelProfileSettingTab = class extends import_obsidian.PluginSettingTab {
       this.plugin.settings.hideAddButton = value;
       await this.plugin.saveSettings();
     }));
-    new import_obsidian.Setting(containerEl).setName("\u9690\u85CF\u7279\u5B9A\u7684\u5C5E\u6027").setDesc("\u60F3\u9690\u85CF\u7684\u5C5E\u6027\u540D\u79F0\uFF08\u4E0D\u4F1A\u5220\u9664\u6570\u636E\uFF0C\u53EA\u662F\u770B\u4E0D\u89C1\uFF09\uFF0C\u652F\u6301\u4E2D\u82F1\u6587\u9017\u53F7\u3002\u4F8B\u5982: tags\uFF0Caliases").addText((text) => text.setPlaceholder("tags, aliases").setValue(this.plugin.settings.hideProperties).onChange(async (value) => {
-      this.plugin.settings.hideProperties = value;
-      await this.plugin.saveSettings();
-    }));
     new import_obsidian.Setting(containerEl).setName("\u9ED8\u8BA4\u9501\u5B9A\u5C5E\u6027 (\u9632\u8BEF\u89E6)").setDesc("\u5F00\u542F\u540E\uFF0C\u6253\u5F00\u5361\u7247\u65F6\u9ED8\u8BA4\u7981\u6B62\u4FEE\u6539\u5C5E\u6027\u5185\u5BB9\uFF08\u4F46\u53CC\u94FE\u63A5\u4F9D\u7136\u53EF\u70B9\u51FB\u8DF3\u8F6C\uFF09\u3002\u901A\u8FC7\u547D\u4EE4/\u5FEB\u6377\u952E\u6765\u4E34\u65F6\u89E3\u9501\u5B83\u3002").addToggle((toggle) => toggle.setValue(this.plugin.settings.defaultLocked).onChange(async (value) => {
       this.plugin.settings.defaultLocked = value;
       this.plugin.isEditLocked = value;
@@ -371,6 +386,14 @@ var NovelProfileSettingTab = class extends import_obsidian.PluginSettingTab {
     }));
     new import_obsidian.Setting(containerEl).setName("\u60AC\u6D6E\u7A97\u4EC5\u663E\u793A\u5361\u7247 (\u5199\u5C0F\u8BF4\u7EAF\u51C0\u6A21\u5F0F)").setDesc("\u5F00\u542F\u540E\uFF0C\u9F20\u6807\u60AC\u505C\u5728\u89D2\u8272\u53CC\u94FE\u4E0A\u65F6\uFF0C\u53EA\u5F39\u51FA\u4E00\u4E2A\u5E72\u51C0\u7684\u89D2\u8272\u540D\u7247\uFF0C\u81EA\u52A8\u9690\u85CF\u6B63\u6587\u5185\u5BB9\u548C\u6807\u9898\u3002").addToggle((toggle) => toggle.setValue(this.plugin.settings.popoverOnlyCard).onChange(async (value) => {
       this.plugin.settings.popoverOnlyCard = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u6781\u7B80\u7248\u9875\u9762\u9884\u89C8 (\u7AD6\u6392\u5361\u724C\u6A21\u5F0F)").setDesc("\u5F00\u542F\u540E\uFF0C\u60AC\u6D6E\u9884\u89C8\u5C06\u53D8\u6210\u4E00\u5F20\u5361\u724C\uFF08\u7C7B\u4F3C\u56FE3\uFF09\uFF1A\u56FE\u7247\u94FA\u6EE1\u4F5C\u4E3A\u80CC\u666F\uFF0C\u6587\u5B57\u60AC\u6D6E\u8986\u76D6\u5728\u5E95\u90E8\u3002\u5173\u95ED\u5219\u4E3A\u9ED8\u8BA4\u7684\u5DE6\u53F3\u6A2A\u6392\u5361\u7247\u3002").addToggle((toggle) => toggle.setValue(this.plugin.settings.minimalPopover).onChange(async (value) => {
+      this.plugin.settings.minimalPopover = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u60AC\u6D6E\u5361\u7247\u6574\u4F53\u7F29\u653E\u6BD4\u4F8B").setDesc("\u6309\u6BD4\u4F8B\u6574\u4F53\u7F29\u653E\u60AC\u6D6E\u5361\u7247\uFF08\u5305\u62EC\u6A2A\u6392\u548C\u6781\u7B80\u6A21\u5F0F\uFF09\u3002\u8303\u56F4 0.5 \u5230 2.0\uFF0C\u9ED8\u8BA4 1.0\u3002").addSlider((slider) => slider.setLimits(0.5, 2, 0.1).setValue(this.plugin.settings.popoverScale).setDynamicTooltip().onChange(async (value) => {
+      this.plugin.settings.popoverScale = value;
       await this.plugin.saveSettings();
     }));
   }

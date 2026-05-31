@@ -121,3 +121,216 @@ body.np-showing-custom-popover .hover-popover {
     font-weight: 500;
     white-space: nowrap; /* 绝对不许换行 */
 }
+
+
+/* ======================================================= */
+/* 1. 正文内：小说角色卡片核心布局                         */
+/* ======================================================= */
+body .is-novel-profile .metadata-properties-heading { display: none; }
+
+body .is-novel-profile .metadata-container {
+    display: flex !important;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 30px; 
+    background-color: var(--background-secondary);
+    padding: 20px;
+    border-radius: 12px;
+    margin: 15px 0 25px 0;
+    border: 1px solid var(--background-modifier-border);
+}
+
+body .is-novel-profile[data-has-image="true"] .metadata-container::before {
+    content: "";
+    display: block;
+    width: var(--np-image-width, 150px);
+    flex-shrink: 0;
+    background-image: var(--np-image-url);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 12px;
+    box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+body .is-novel-profile .metadata-content {
+    flex-grow: 1;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+body .is-novel-profile .metadata-property-icon { opacity: 0.4; }
+body .is-novel-profile .metadata-container.is-collapsed .metadata-content { display: flex; }
+
+
+/* ======================================================= */
+/* 2. 独家打造：专属自定义悬浮名片 (终极比例对齐版)         */
+/* ======================================================= */
+
+/* 拦截并隐藏 Obsidian 原生的悬浮窗 */
+body.np-showing-custom-popover .hover-popover {
+    display: none !important; 
+}
+
+/* 我们自己建造的完美名片容器 (默认横向模式) */
+.np-custom-popover {
+    position: fixed;
+    z-index: 99999;
+    background-color: var(--background-secondary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: 12px;
+    padding: 20px 30px 20px 20px;
+    box-shadow: 2px 2px 10px rgba(0, 0, 0, 0.4);
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 30px;
+    width: max-content; 
+    max-width: 800px;
+    pointer-events: none; 
+    
+    /* 弹出动画 */
+    opacity: 0;
+    transform: translateY(5px);
+    animation: np-popover-fade 0.2s forwards;
+}
+
+@keyframes np-popover-fade {
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 左侧图片 */
+.np-custom-popover-img {
+    flex-shrink: 0;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 12px;
+    box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.4);
+    min-height: calc(var(--np-image-width, 150px) * 1.25);
+}
+
+/* 右侧文字内容 */
+.np-custom-popover-content {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 18px; 
+}
+
+/* 单行属性 */
+.np-custom-prop {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 15px;
+    font-size: 1.1em; 
+}
+
+/* 属性名 */
+.np-custom-key {
+    color: var(--text-muted);
+    min-width: max-content;
+}
+
+/* 属性值 */
+.np-custom-val {
+    color: var(--text-normal);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+
+/* ======================================================= */
+/* 3. 极简版悬浮名片 (图3：竖向卡牌模式)                    */
+/* ======================================================= */
+
+/* 开启极简模式后的整体容器变化 */
+.np-custom-popover.is-minimal {
+    flex-direction: column;
+    justify-content: flex-end; /* 文字沉底 */
+    padding: 0;
+    gap: 0;
+    /* 宽度沿用图片宽度的设置并适当放大，保证竖版比例美观 */
+    width: calc(var(--np-image-width, 150px) * 1.4); 
+    min-height: calc(var(--np-image-width, 150px) * 1.9); 
+
+    overflow: hidden;
+}
+
+/* 极简模式下：图片变成全屏幕背景 */
+.np-custom-popover.is-minimal .np-custom-popover-img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important; /* 强制拉宽 */
+    height: 100%;
+    min-height: unset;
+    border-radius: 0;
+    box-shadow: none;
+    z-index: 1;
+}
+
+/* 如果存在图片，底部增加平滑的纯黑渐变遮罩，为了看清白色文字 */
+.np-custom-popover.is-minimal.has-image::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 65%; /* 遮盖底部 65% */
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.4) 20%, rgba(0, 0, 0, 0) 100%);
+    z-index: 2;
+    pointer-events: none;
+}
+
+/* 文字区块浮动在遮罩和图片的最上层 */
+.np-custom-popover.is-minimal .np-custom-popover-content {
+    position: relative;
+    z-index: 3;
+    padding: 25px 20px;
+    width: 100%;
+    box-sizing: border-box;
+    gap: 12px;
+}
+
+/* 存在图片时，强制将文字反转为白色系，并加上文字阴影 */
+.np-custom-popover.is-minimal.has-image .np-custom-key {
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.np-custom-popover.is-minimal.has-image .np-custom-val {
+    color: #ffffff;
+    text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+/* 降级处理：如果没有图片，排版居中显示 */
+.np-custom-popover.is-minimal:not(.has-image) .np-custom-popover-content {
+    height: 100%;
+    justify-content: center;
+}
+
+
+
+
+
+
+
+
+.np-custom-popover.is-minimal .np-custom-popover-img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100% !important; 
+    height: 100%;
+    min-height: unset;
+    border-radius: 0;
+    box-shadow: none;
+    z-index: 1;
+    /* 建议确认这里有 background-size: cover; 
+       虽然你在横向模式加了，但再确认一下能保证竖向不拉伸 */
+    background-size: cover;
+    background-position: center;
+}
