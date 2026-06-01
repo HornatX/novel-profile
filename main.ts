@@ -278,28 +278,35 @@ export default class NovelProfilePlugin extends Plugin {
 	}
 
 	processAllLeaves() {
-		const leaves = this.app.workspace.getLeavesOfType('markdown');
+    const leaves = this.app.workspace.getLeavesOfType('markdown');
 
-		leaves.forEach(leaf => {
-			const view = leaf.view as MarkdownView;
-			if (!view || !view.file) return;
+    leaves.forEach(leaf => {
+        const view = leaf.view as MarkdownView;
+        if (!view || !view.file) return;
 
-			const file = view.file;
-			const container = view.containerEl;
-			
-			const isTarget = this.checkIsTargetFile(file);
+        const file = view.file;
+        const container = view.containerEl;
+        
+        // 1. 检查是否在目标文件夹
+        const isTargetFolder = this.checkIsTargetFile(file);
+        
+        // 2. 检查是否有属性内容 (关键逻辑 ✨)
+        const cache = this.app.metadataCache.getFileCache(file);
+        const hasFrontmatter = cache?.frontmatter && Object.keys(cache.frontmatter).length > 0;
 
-			if (isTarget) {
-				container.classList.add('is-novel-profile');
-				this.updateImageState(view, file);
-				setTimeout(() => this.autoExpandProperties(view), 150);
-			} else {
-				container.classList.remove('is-novel-profile');
-				container.removeAttribute('data-has-image');
-				container.style.removeProperty('--np-image-url');
-			}
-		});
-	}
+        // 只有同时满足“在文件夹内”且“有属性内容”才显示卡片
+        if (isTargetFolder && hasFrontmatter) {
+            container.classList.add('is-novel-profile');
+            this.updateImageState(view, file);
+            setTimeout(() => this.autoExpandProperties(view), 150);
+        } else {
+            // 否则移除样式，恢复原生外观
+            container.classList.remove('is-novel-profile');
+            container.removeAttribute('data-has-image');
+            container.style.removeProperty('--np-image-url');
+        }
+    });
+}
 
 	updateImageState(view: MarkdownView, file: TFile) {
 		const cache = this.app.metadataCache.getFileCache(file);

@@ -241,8 +241,10 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       if (!view || !view.file) return;
       const file = view.file;
       const container = view.containerEl;
-      const isTarget = this.checkIsTargetFile(file);
-      if (isTarget) {
+      const isTargetFolder = this.checkIsTargetFile(file);
+      const cache = this.app.metadataCache.getFileCache(file);
+      const hasFrontmatter = cache?.frontmatter && Object.keys(cache.frontmatter).length > 0;
+      if (isTargetFolder && hasFrontmatter) {
         container.classList.add("is-novel-profile");
         this.updateImageState(view, file);
         setTimeout(() => this.autoExpandProperties(view), 150);

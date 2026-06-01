@@ -128,7 +128,7 @@ body.np-showing-custom-popover .hover-popover {
 /* ======================================================= */
 body .is-novel-profile .metadata-properties-heading { display: none; }
 
-body .is-novel-profile .metadata-container {
+body .is-novel-profile .metadata-container:not(:empty) {
     display: flex !important;
     flex-direction: row;
     align-items: stretch;
@@ -138,6 +138,11 @@ body .is-novel-profile .metadata-container {
     border-radius: 12px;
     margin: 15px 0 25px 0;
     border: 1px solid var(--background-modifier-border);
+}
+
+/* 如果容器内部没有属性行，也不显示边框 */
+body .is-novel-profile .metadata-container.is-empty {
+    display: none !important;
 }
 
 body .is-novel-profile[data-has-image="true"] .metadata-container::before {
