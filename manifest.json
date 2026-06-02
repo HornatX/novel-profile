@@ -1,10 +1,10 @@
 {
 	"id": "novel-profile",
 	"name": "Novel Profile",
-	"version": "1.2.4",
+	"version": "1.2.5",
 	"minAppVersion": "1.0.0",
 	"description": "Transforms the native properties area into an elegant character profile card.",
 	"author": "hornat",
-	"authorUrl": "https://github.com/HornatX/novel-profile",
+	"authorUrl": "",
 	"isDesktopOnly": true
 }

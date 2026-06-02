@@ -357,7 +357,6 @@ export default class NovelProfilePlugin extends Plugin {
 		this.dynamicStyleElement.textContent = css;
 	}
 }
-
 // -----------------------------------------------------
 // 3. 事件时间线视图 (Timeline View) - 彻底无感定位版
 // -----------------------------------------------------
@@ -371,6 +370,7 @@ class NovelTimelineView extends ItemView {
 
 	updateVersion: number = 0;
 	isInitialLoading: boolean = false;
+	activeFile: TFile | null = null; // 🌟 核心：记住当前绑定的文件
 
 	constructor(leaf: WorkspaceLeaf, plugin: NovelProfilePlugin) {
 		super(leaf);
@@ -382,7 +382,10 @@ class NovelTimelineView extends ItemView {
 			this.syncHighlightToLine(line, false, false);
 		}, 50, true);
 
-		this.debouncedUpdateView = debounce(this.updateView.bind(this), 500, true);
+		// 🌟 核心：统一的防抖更新入口
+		this.debouncedUpdateView = debounce((maintainScroll: boolean = false) => {
+			this.updateView(maintainScroll);
+		}, 150, true);
 	}
 
 	getViewType() { return TIMELINE_VIEW_TYPE; }
@@ -400,74 +403,115 @@ class NovelTimelineView extends ItemView {
 		return view?.editor?.getCursor()?.line || 0;
 	}
 
-	// 🌟 修复：新增 onload 生命周期，将所有事件监听放在这里，防止重复绑定导致内存卡死！
 	onload() {
 		super.onload();
 
-		this.registerEvent(this.app.workspace.on('file-open', () => {
-			this.isInitialLoading = true;
-			this.updateView();
-			setTimeout(() => { this.isInitialLoading = false; }, 300);
+		// 1. 只有打开了新的 Markdown 文件，才触发彻底重绘 (解决闪烁和空白问题)
+		this.registerEvent(this.app.workspace.on('file-open', (file) => {
+			if (file && file.extension === 'md') {
+				if (this.activeFile !== file) {
+					this.activeFile = file;
+					this.isInitialLoading = true;
+					this.debouncedUpdateView(false);
+					setTimeout(() => { this.isInitialLoading = false; }, 300);
+				}
+			} else if (!file) {
+				this.activeFile = null;
+				this.debouncedUpdateView(false);
+			}
 		}));
 
+		// 2. 只有当文本内容被修改时，才刷新视图 (并且保持滚动条位置)
 		this.registerEvent(this.app.vault.on('modify', (file) => {
-			if (file === this.app.workspace.getActiveFile()) {
+			if (this.activeFile && file === this.activeFile) {
 				this.debouncedUpdateView(true);
 			}
 		}));
 
-		this.registerEvent(this.app.workspace.on('editor-change', (editor, view) => {
-			if (this.isClickNavigating || this.isInitialLoading) return;
-			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-			// 确保 activeView 存在且与当前变动的 view 是同一个，从而解决类型冲突
-			if (activeView && view === activeView) {
-				this.syncHighlightToLine(this.getVisibleLine(activeView), false, false);
+		// 3. 切换标签页 (Tabs) 或者焦点时的处理
+		this.registerEvent(this.app.workspace.on('active-leaf-change', (leaf) => {
+			if (leaf && leaf.view instanceof MarkdownView) {
+				const file = leaf.view.file;
+				if (file && file !== this.activeFile) {
+					this.activeFile = file;
+					this.isInitialLoading = true;
+					this.debouncedUpdateView(false);
+					setTimeout(() => { this.isInitialLoading = false; }, 300);
+				} else if (file === this.activeFile) {
+					this.debouncedScrollSync(leaf.view);
+				}
 			}
 		}));
 
+		// 4. 编辑器内部操作：换行、光标移动，只同步侧边栏高亮，不重绘！
+		this.registerEvent(this.app.workspace.on('editor-change', (editor, view) => {
+			if (this.isClickNavigating || this.isInitialLoading) return;
+			if (this.activeFile && view.file === this.activeFile) {
+				this.syncHighlightToLine(this.getVisibleLine(view), false, false);
+			}
+		}));
+
+		// 5. 🌟 核心修复：滚动同步 (彻底解决光标不在正文时不跟随的 bug)
 		const workspaceEl = this.app.workspace.containerEl;
 		this.registerDomEvent(workspaceEl, "scroll", (e) => {
 			if (this.isClickNavigating || this.isInitialLoading) return;
 			const target = e.target as HTMLElement;
 
 			if (target?.classList?.contains("cm-scroller")) {
-				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (activeView && (activeView.editor as any).cm?.scrollDOM === target) {
-					this.debouncedScrollSync(activeView);
+				// 🌟 不再依赖“焦点激活(getActiveView)”，而是去遍历所有 Markdown 页面
+				const leaves = this.app.workspace.getLeavesOfType('markdown');
+				for (const leaf of leaves) {
+					const view = leaf.view as MarkdownView;
+					// 只要屏幕上正在滚动的那个区域，属于我们正在监视的笔记，就强制同步！
+					if (view && view.file === this.activeFile) {
+						const cm = (view.editor as any).cm;
+						if (cm && cm.scrollDOM === target) {
+							this.debouncedScrollSync(view);
+							return;
+						}
+					}
 				}
 			}
 		}, { capture: true });
 	}
 
-	// 🌟 修复：onOpen 现在非常纯净，只负责每次打开时刷新视图内容
 	async onOpen() {
-		this.updateView();
+		this.app.workspace.onLayoutReady(() => {
+			// 初始化时抓取一次文件
+			let file = this.app.workspace.getActiveFile();
+			if (!file) {
+				const leaves = this.app.workspace.getLeavesOfType('markdown');
+				if (leaves.length > 0) file = (leaves[0].view as MarkdownView).file;
+			}
+			this.activeFile = file;
+			this.updateView(false);
+		});
 	}
 
 	async onClose() {
 		this.contentEl.empty();
 		this.timelineNodes = [];
+		this.activeFile = null;
 	}
 
 	async updateView(maintainScroll: boolean = false) {
-		const currentVersion = ++this.updateVersion;
 		const container = this.contentEl;
+
+		if (!this.activeFile) {
+			container.empty();
+			container.createDiv({ cls: 'np-timeline-empty', text: '请打开一个包含事件记录的笔记。' });
+			return;
+		}
+
+		const currentVersion = ++this.updateVersion;
+		const content = await this.app.vault.cachedRead(this.activeFile);
+		if (currentVersion !== this.updateVersion) return;
 
 		let savedScrollTop = 0;
 		if (maintainScroll) {
 			const oldTimeline = container.querySelector('.np-timeline-container');
 			if (oldTimeline) savedScrollTop = oldTimeline.scrollTop;
 		}
-
-		const activeFile = this.app.workspace.getActiveFile();
-		if (!activeFile) {
-			container.empty();
-			container.createDiv({ cls: 'np-timeline-empty', text: '请打开一个包含事件记录的笔记。' });
-			return;
-		}
-
-		const content = await this.app.vault.cachedRead(activeFile);
-		if (currentVersion !== this.updateVersion) return;
 
 		container.empty();
 		this.timelineNodes = [];
@@ -502,61 +546,49 @@ class NovelTimelineView extends ItemView {
 		
 		const isInitialLoad = !maintainScroll;
 		if (isInitialLoad) {
-			// 🌟 终极绝招：隐身！在算出准确位置前，完全变透明！
-			timelineContainer.style.opacity = '0';
+			timelineContainer.style.opacity = '0'; // 隐身，等待跳跃
 		}
 
 		for (const section of sectionsData) {
 			let time = "", characterName = "", causeText = "", resultText = "";
-			let directImageLink = ""; // 🌟新增：用于存储直接识别到的图片
+			let directImageLink = ""; 
 
 			const sectionText = section.contentLines.join('\n');
 
 			const timeMatch = sectionText.match(/-\s+(?:\*\*)*时间(?:\*\*)*\s*[：:]\s*(.*)/);
 			if (timeMatch) time = timeMatch[1].trim();
 
-			// 🌟优化：解析人物，支持提取多个人物，并识别当中的图片文件
-			// 🌟优化：解析人物，支持提取多个人物，并识别当中的图片文件
 			const charMatch = sectionText.match(/-\s+(?:\*\*)*人物(?:\*\*)*\s*[：:]\s*(.*)/);
 			if (charMatch) {
 				const rawCharText = charMatch[1];
-				// 匹配所有带 [[]] 的双链
 				const linkMatches = [...rawCharText.matchAll(/!*\[\[(.*?)\]\]/g)];
 				
 				for (const match of linkMatches) {
 					const linkText = match[1].split('|')[0].trim();
 					if (linkText.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i)) {
-						if (!directImageLink) directImageLink = linkText; // 提取图片
+						if (!directImageLink) directImageLink = linkText; 
 					} else {
-						if (!characterName) characterName = linkText; // 提取人名
+						if (!characterName) characterName = linkText; 
 					}
 				}
 				
-				// 兜底1：如果没加 [[]] 括号，但也直接写了图片名
 				if (!directImageLink) {
 					const rawImgMatch = rawCharText.match(/([^\s,，、\|]+\.(?:jpg|jpeg|png|gif|webp|bmp))/i);
 					if (rawImgMatch) directImageLink = rawImgMatch[1];
 				}
 
-				// 兜底2：处理最终显示的人名
 				if (!characterName) {
-					// 先把找到的图片名从原文本中“扣除”
 					let cleanedText = rawCharText;
 					if (directImageLink) {
-						// 转义特殊字符防报错
 						const safeImgLink = directImageLink.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
 						cleanedText = cleanedText.replace(new RegExp(`!*\\[\\[${safeImgLink}.*?\\]\\]`, 'g'), '');
 						cleanedText = cleanedText.replace(new RegExp(safeImgLink, 'g'), '');
 					}
-					
-					// 提取剩下文本当人名
 					cleanedText = cleanedText.replace(/\[\[|\]\]/g, '').trim();
 					const parts = cleanedText.split(/[,，、]/).map(p => p.trim()).filter(p => p.length > 0);
-					
 					if (parts.length > 0) {
 						characterName = parts[0];
 					} else if (directImageLink) {
-						// 🌟 终极兜底：如果一行字里只有图片，直接拿图片名当人名（并且去掉 .jpg/.png 等后缀和路径）
 						const baseName = directImageLink.split(/[\/\\]/).pop() || '';
 						characterName = baseName.replace(/\.(jpg|jpeg|png|gif|webp|bmp)$/i, '');
 					}
@@ -576,9 +608,10 @@ class NovelTimelineView extends ItemView {
 
 			itemEl.onclick = () => {
 				let view = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (!view) {
+				// 如果当前没有激活的视图，尝试抓取对应的 view
+				if (!view || view.file !== this.activeFile) {
 					const leaves = this.app.workspace.getLeavesOfType('markdown');
-					if (leaves.length > 0) view = leaves[0].view as MarkdownView;
+					view = leaves.find(l => (l.view as MarkdownView).file === this.activeFile)?.view as MarkdownView;
 				}
 
 				if (view && view.editor) {
@@ -609,20 +642,16 @@ class NovelTimelineView extends ItemView {
 				if (characterName) {
 					cardEl.createDiv({ cls: 'np-timeline-name', text: characterName });
 				}
-				
-				// 🌟 优先渲染直接在【人物】字段写上的图片
 				if (directImageLink) {
-					const imgFile = this.app.metadataCache.getFirstLinkpathDest(directImageLink, activeFile.path);
+					const imgFile = this.app.metadataCache.getFirstLinkpathDest(directImageLink, this.activeFile.path);
 					if (imgFile) {
 						const imgPath = this.app.vault.getResourcePath(imgFile);
 						if (imgPath) cardEl.style.backgroundImage = `url("${imgPath}")`;
 					} else if (directImageLink.startsWith('http')) {
-						// 甚至支持直接填写的网络图片链接
 						cardEl.style.backgroundImage = `url("${directImageLink}")`;
 					}
 				} else if (characterName) {
-					// 兜底（原逻辑）：从人物笔记的 frontmatter 中查找图片
-					const charFile = this.app.metadataCache.getFirstLinkpathDest(characterName, activeFile.path);
+					const charFile = this.app.metadataCache.getFirstLinkpathDest(characterName, this.activeFile.path);
 					if (charFile) {
 						const cache = this.app.metadataCache.getFileCache(charFile);
 						const fm = cache?.frontmatter;
@@ -662,24 +691,23 @@ class NovelTimelineView extends ItemView {
 			timelineContainer.createDiv({ cls: 'np-timeline-empty', text: '没有匹配到包含 时间、起因、结果 的事件记录。' });
 			if (isInitialLoad) timelineContainer.style.opacity = '1';
 		} else {
-			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (view && view.editor) {
-				if (isInitialLoad) {
-					// 🌟 核心：等 SimplyScroll 彻底干完活（只需100毫秒），在隐身状态下瞬间滚动到底，然后再现身！
-					setTimeout(() => {
-						if (currentVersion === this.updateVersion) {
-							// isInitialLoad 传 true 保证是 auto 瞬间跳跃
-							this.syncHighlightToLine(this.getVisibleLine(view), false, true);
-							timelineContainer.style.transition = 'opacity 0.15s ease-out'; // 增加非常丝滑的淡入效果
-							timelineContainer.style.opacity = '1';
-						}
-					}, 100);
-				} else {
-					this.syncHighlightToLine(this.getVisibleLine(view), maintainScroll, false);
-				}
-			}
-			if (maintainScroll) {
+			// 定位并在需要时显示
+			if (isInitialLoad) {
+				setTimeout(() => {
+					if (currentVersion === this.updateVersion) {
+						const leaves = this.app.workspace.getLeavesOfType('markdown');
+						const view = leaves.find(l => (l.view as MarkdownView).file === this.activeFile)?.view as MarkdownView;
+						if (view) this.syncHighlightToLine(this.getVisibleLine(view), false, true);
+						
+						timelineContainer.style.transition = 'opacity 0.15s ease-out';
+						timelineContainer.style.opacity = '1';
+					}
+				}, 50); // 极速展现
+			} else {
 				timelineContainer.scrollTop = savedScrollTop;
+				const leaves = this.app.workspace.getLeavesOfType('markdown');
+				const view = leaves.find(l => (l.view as MarkdownView).file === this.activeFile)?.view as MarkdownView;
+				if (view) this.syncHighlightToLine(this.getVisibleLine(view), maintainScroll, false);
 			}
 		}
 	}
@@ -688,7 +716,6 @@ class NovelTimelineView extends ItemView {
 		if (!this.timelineNodes || this.timelineNodes.length === 0) return;
 
 		let activeNode: { el: HTMLElement, line: number } | null = null;
-		
 		for (const node of this.timelineNodes) {
 			if (targetLine >= node.line) {
 				activeNode = node;
@@ -715,7 +742,6 @@ class NovelTimelineView extends ItemView {
 		}
 	}
 }
-
 // -----------------------------------------------------
 // 4. 设置面板
 // -----------------------------------------------------

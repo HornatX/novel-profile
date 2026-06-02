@@ -306,6 +306,7 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
   }
 };
 var NovelTimelineView = class extends import_obsidian.ItemView {
+  // 🌟 核心：记住当前绑定的文件
   constructor(leaf, plugin) {
     super(leaf);
     this.timelineNodes = [];
@@ -313,13 +314,16 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
     this.isClickNavigating = false;
     this.updateVersion = 0;
     this.isInitialLoading = false;
+    this.activeFile = null;
     this.plugin = plugin;
     this.debouncedScrollSync = (0, import_obsidian.debounce)((view) => {
       if (this.isClickNavigating || this.isInitialLoading) return;
       const line = this.getVisibleLine(view);
       this.syncHighlightToLine(line, false, false);
     }, 50, true);
-    this.debouncedUpdateView = (0, import_obsidian.debounce)(this.updateView.bind(this), 500, true);
+    this.debouncedUpdateView = (0, import_obsidian.debounce)((maintainScroll = false) => {
+      this.updateView(maintainScroll);
+    }, 150, true);
   }
   getViewType() {
     return TIMELINE_VIEW_TYPE;
@@ -341,26 +345,47 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
     }
     return view?.editor?.getCursor()?.line || 0;
   }
-  // 🌟 修复：新增 onload 生命周期，将所有事件监听放在这里，防止重复绑定导致内存卡死！
   onload() {
     super.onload();
-    this.registerEvent(this.app.workspace.on("file-open", () => {
-      this.isInitialLoading = true;
-      this.updateView();
-      setTimeout(() => {
-        this.isInitialLoading = false;
-      }, 300);
+    this.registerEvent(this.app.workspace.on("file-open", (file) => {
+      if (file && file.extension === "md") {
+        if (this.activeFile !== file) {
+          this.activeFile = file;
+          this.isInitialLoading = true;
+          this.debouncedUpdateView(false);
+          setTimeout(() => {
+            this.isInitialLoading = false;
+          }, 300);
+        }
+      } else if (!file) {
+        this.activeFile = null;
+        this.debouncedUpdateView(false);
+      }
     }));
     this.registerEvent(this.app.vault.on("modify", (file) => {
-      if (file === this.app.workspace.getActiveFile()) {
+      if (this.activeFile && file === this.activeFile) {
         this.debouncedUpdateView(true);
+      }
+    }));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", (leaf) => {
+      if (leaf && leaf.view instanceof import_obsidian.MarkdownView) {
+        const file = leaf.view.file;
+        if (file && file !== this.activeFile) {
+          this.activeFile = file;
+          this.isInitialLoading = true;
+          this.debouncedUpdateView(false);
+          setTimeout(() => {
+            this.isInitialLoading = false;
+          }, 300);
+        } else if (file === this.activeFile) {
+          this.debouncedScrollSync(leaf.view);
+        }
       }
     }));
     this.registerEvent(this.app.workspace.on("editor-change", (editor, view) => {
       if (this.isClickNavigating || this.isInitialLoading) return;
-      const activeView = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
-      if (activeView && view === activeView) {
-        this.syncHighlightToLine(this.getVisibleLine(activeView), false, false);
+      if (this.activeFile && view.file === this.activeFile) {
+        this.syncHighlightToLine(this.getVisibleLine(view), false, false);
       }
     }));
     const workspaceEl = this.app.workspace.containerEl;
@@ -368,37 +393,51 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
       if (this.isClickNavigating || this.isInitialLoading) return;
       const target = e.target;
       if (target?.classList?.contains("cm-scroller")) {
-        const activeView = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
-        if (activeView && activeView.editor.cm?.scrollDOM === target) {
-          this.debouncedScrollSync(activeView);
+        const leaves = this.app.workspace.getLeavesOfType("markdown");
+        for (const leaf of leaves) {
+          const view = leaf.view;
+          if (view && view.file === this.activeFile) {
+            const cm = view.editor.cm;
+            if (cm && cm.scrollDOM === target) {
+              this.debouncedScrollSync(view);
+              return;
+            }
+          }
         }
       }
     }, { capture: true });
   }
-  // 🌟 修复：onOpen 现在非常纯净，只负责每次打开时刷新视图内容
   async onOpen() {
-    this.updateView();
+    this.app.workspace.onLayoutReady(() => {
+      let file = this.app.workspace.getActiveFile();
+      if (!file) {
+        const leaves = this.app.workspace.getLeavesOfType("markdown");
+        if (leaves.length > 0) file = leaves[0].view.file;
+      }
+      this.activeFile = file;
+      this.updateView(false);
+    });
   }
   async onClose() {
     this.contentEl.empty();
     this.timelineNodes = [];
+    this.activeFile = null;
   }
   async updateView(maintainScroll = false) {
-    const currentVersion = ++this.updateVersion;
     const container = this.contentEl;
+    if (!this.activeFile) {
+      container.empty();
+      container.createDiv({ cls: "np-timeline-empty", text: "\u8BF7\u6253\u5F00\u4E00\u4E2A\u5305\u542B\u4E8B\u4EF6\u8BB0\u5F55\u7684\u7B14\u8BB0\u3002" });
+      return;
+    }
+    const currentVersion = ++this.updateVersion;
+    const content = await this.app.vault.cachedRead(this.activeFile);
+    if (currentVersion !== this.updateVersion) return;
     let savedScrollTop = 0;
     if (maintainScroll) {
       const oldTimeline = container.querySelector(".np-timeline-container");
       if (oldTimeline) savedScrollTop = oldTimeline.scrollTop;
     }
-    const activeFile = this.app.workspace.getActiveFile();
-    if (!activeFile) {
-      container.empty();
-      container.createDiv({ cls: "np-timeline-empty", text: "\u8BF7\u6253\u5F00\u4E00\u4E2A\u5305\u542B\u4E8B\u4EF6\u8BB0\u5F55\u7684\u7B14\u8BB0\u3002" });
-      return;
-    }
-    const content = await this.app.vault.cachedRead(activeFile);
-    if (currentVersion !== this.updateVersion) return;
     container.empty();
     this.timelineNodes = [];
     const lines = content.split("\n");
@@ -476,9 +515,9 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
       this.timelineNodes.push({ el: itemEl, line: section.line });
       itemEl.onclick = () => {
         let view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
-        if (!view) {
+        if (!view || view.file !== this.activeFile) {
           const leaves = this.app.workspace.getLeavesOfType("markdown");
-          if (leaves.length > 0) view = leaves[0].view;
+          view = leaves.find((l) => l.view.file === this.activeFile)?.view;
         }
         if (view && view.editor) {
           this.isClickNavigating = true;
@@ -507,7 +546,7 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
           cardEl.createDiv({ cls: "np-timeline-name", text: characterName });
         }
         if (directImageLink) {
-          const imgFile = this.app.metadataCache.getFirstLinkpathDest(directImageLink, activeFile.path);
+          const imgFile = this.app.metadataCache.getFirstLinkpathDest(directImageLink, this.activeFile.path);
           if (imgFile) {
             const imgPath = this.app.vault.getResourcePath(imgFile);
             if (imgPath) cardEl.style.backgroundImage = `url("${imgPath}")`;
@@ -515,7 +554,7 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
             cardEl.style.backgroundImage = `url("${directImageLink}")`;
           }
         } else if (characterName) {
-          const charFile = this.app.metadataCache.getFirstLinkpathDest(characterName, activeFile.path);
+          const charFile = this.app.metadataCache.getFirstLinkpathDest(characterName, this.activeFile.path);
           if (charFile) {
             const cache = this.app.metadataCache.getFileCache(charFile);
             const fm = cache?.frontmatter;
@@ -550,22 +589,21 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
       timelineContainer.createDiv({ cls: "np-timeline-empty", text: "\u6CA1\u6709\u5339\u914D\u5230\u5305\u542B \u65F6\u95F4\u3001\u8D77\u56E0\u3001\u7ED3\u679C \u7684\u4E8B\u4EF6\u8BB0\u5F55\u3002" });
       if (isInitialLoad) timelineContainer.style.opacity = "1";
     } else {
-      const view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
-      if (view && view.editor) {
-        if (isInitialLoad) {
-          setTimeout(() => {
-            if (currentVersion === this.updateVersion) {
-              this.syncHighlightToLine(this.getVisibleLine(view), false, true);
-              timelineContainer.style.transition = "opacity 0.15s ease-out";
-              timelineContainer.style.opacity = "1";
-            }
-          }, 100);
-        } else {
-          this.syncHighlightToLine(this.getVisibleLine(view), maintainScroll, false);
-        }
-      }
-      if (maintainScroll) {
+      if (isInitialLoad) {
+        setTimeout(() => {
+          if (currentVersion === this.updateVersion) {
+            const leaves = this.app.workspace.getLeavesOfType("markdown");
+            const view = leaves.find((l) => l.view.file === this.activeFile)?.view;
+            if (view) this.syncHighlightToLine(this.getVisibleLine(view), false, true);
+            timelineContainer.style.transition = "opacity 0.15s ease-out";
+            timelineContainer.style.opacity = "1";
+          }
+        }, 50);
+      } else {
         timelineContainer.scrollTop = savedScrollTop;
+        const leaves = this.app.workspace.getLeavesOfType("markdown");
+        const view = leaves.find((l) => l.view.file === this.activeFile)?.view;
+        if (view) this.syncHighlightToLine(this.getVisibleLine(view), maintainScroll, false);
       }
     }
   }
