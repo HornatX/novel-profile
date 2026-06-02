@@ -30,13 +30,13 @@ var DEFAULT_SETTINGS = {
   hidePropertyNames: false,
   hideAddButton: true,
   hideProperties: "tags,aliases",
+  // 默认隐藏 tags 和 aliases
   defaultLocked: true,
   popoverOnlyCard: true,
   minimalPopover: false,
-  // 默认关闭，保持原有左右排版
   popoverScale: 1
-  // 🌟 新增默认缩放比例为 1.0
 };
+var TIMELINE_VIEW_TYPE = "novel-timeline-view";
 var NovelProfilePlugin = class extends import_obsidian.Plugin {
   constructor() {
     super(...arguments);
@@ -49,6 +49,15 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     await this.loadSettings();
     this.isEditLocked = this.settings.defaultLocked;
     this.updateLockState();
+    this.registerView(TIMELINE_VIEW_TYPE, (leaf) => new NovelTimelineView(leaf, this));
+    this.addRibbonIcon("clock", "\u6253\u5F00\u5C0F\u8BF4\u4E8B\u4EF6\u65F6\u95F4\u7EBF", () => {
+      this.activateTimelineView();
+    });
+    this.addCommand({
+      id: "open-novel-timeline",
+      name: "\u6253\u5F00\u4FA7\u8FB9\u680F: \u5C0F\u8BF4\u4E8B\u4EF6\u65F6\u95F4\u7EBF",
+      callback: () => this.activateTimelineView()
+    });
     this.addCommand({
       id: "toggle-novel-profile-edit",
       name: "\u5207\u6362\u5C5E\u6027\u4FEE\u6539 (\u9501\u5B9A/\u89E3\u9501\u5F53\u524D\u5361\u7247)",
@@ -72,9 +81,7 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     document.head.appendChild(this.dynamicStyleElement);
     this.updateDynamicStyles();
     this.addSettingTab(new NovelProfileSettingTab(this.app, this));
-    this.registerEvent(this.app.workspace.on("file-open", () => {
-      this.processAllLeaves();
-    }));
+    this.registerEvent(this.app.workspace.on("file-open", () => this.processAllLeaves()));
     this.registerEvent(this.app.workspace.on("layout-change", () => this.debouncedProcessLeaves()));
     this.registerEvent(this.app.metadataCache.on("changed", () => this.debouncedProcessLeaves()));
     this.registerDomEvent(document, "mouseover", (e) => this.handleMouseOver(e));
@@ -82,6 +89,18 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     this.app.workspace.onLayoutReady(() => {
       this.processAllLeaves();
     });
+  }
+  async activateTimelineView() {
+    const { workspace } = this.app;
+    let leaf = workspace.getLeavesOfType(TIMELINE_VIEW_TYPE)[0];
+    if (!leaf) {
+      const rightLeaf = workspace.getRightLeaf(false);
+      if (rightLeaf) {
+        await rightLeaf.setViewState({ type: TIMELINE_VIEW_TYPE, active: true });
+        leaf = rightLeaf;
+      }
+    }
+    if (leaf) workspace.revealLeaf(leaf);
   }
   checkIsTargetFile(file) {
     if (!this.isPluginActive) return false;
@@ -99,24 +118,16 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     if (!path) return;
     const cleanPath = path.split("|")[0].split("#")[0].split("^")[0].replace(/\[\[|\]\]/g, "").trim();
     const file = this.app.metadataCache.getFirstLinkpathDest(cleanPath, "");
-    if (!file) {
-      const fallbackFile = this.app.vault.getMarkdownFiles().find((f) => f.basename === cleanPath);
-      if (!fallbackFile) return;
-      if (this.checkIsTargetFile(fallbackFile)) {
-        this.triggerCustomPopover(fallbackFile, linkEl);
-      }
-      return;
-    }
-    if (this.checkIsTargetFile(file)) {
+    if (file && this.checkIsTargetFile(file)) {
       this.triggerCustomPopover(file, linkEl);
     }
   }
   triggerCustomPopover(file, linkEl) {
     document.body.classList.add("np-showing-custom-popover");
     if (this.hoverTimeout) clearTimeout(this.hoverTimeout);
-    this.hoverTimeout = setTimeout(() => {
+    this.hoverTimeout = window.setTimeout(() => {
       this.buildAndShowCustomPopover(file, linkEl);
-    }, 300);
+    }, 30);
   }
   handleMouseOut(e) {
     if (this.hoverTimeout) {
@@ -132,17 +143,13 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     if (!frontmatter) return;
     const popover = document.createElement("div");
     popover.className = "np-custom-popover";
-    if (this.settings.minimalPopover) {
-      popover.classList.add("is-minimal");
-    }
+    if (this.settings.minimalPopover) popover.classList.add("is-minimal");
     const imgPath = this.resolveImagePath(frontmatter[this.settings.imagePropertyName], file);
     if (imgPath) {
       popover.classList.add("has-image");
       const imgDiv = popover.createDiv("np-custom-popover-img");
       imgDiv.style.backgroundImage = `url("${imgPath}")`;
-      if (!this.settings.minimalPopover) {
-        imgDiv.style.width = `${this.settings.imageWidth}px`;
-      }
+      if (!this.settings.minimalPopover) imgDiv.style.width = `${this.settings.imageWidth}px`;
     }
     const contentDiv = popover.createDiv("np-custom-popover-content");
     const hideProps = this.settings.hideProperties.split(/[,，]+/).map((p) => p.trim());
@@ -171,12 +178,8 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     const scale = this.settings.popoverScale || 1;
     const popoverHeight = popover.offsetHeight * scale;
     const popoverWidth = popover.offsetWidth * scale;
-    if (top + popoverHeight > window.innerHeight) {
-      top = rect.top - popoverHeight - 10;
-    }
-    if (left + popoverWidth > window.innerWidth) {
-      left = window.innerWidth - popoverWidth - 20;
-    }
+    if (top + popoverHeight > window.innerHeight) top = rect.top - popoverHeight - 10;
+    if (left + popoverWidth > window.innerWidth) left = window.innerWidth - popoverWidth - 20;
     popover.style.top = `${top}px`;
     popover.style.left = `${left}px`;
     this.activeCustomPopover = popover;
@@ -204,14 +207,14 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
   updateLockState() {
     if (this.isEditLocked) {
       document.body.classList.add("np-edit-locked");
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     } else {
       document.body.classList.remove("np-edit-locked");
     }
   }
   onunload() {
+    this.app.workspace.detachLeavesOfType(TIMELINE_VIEW_TYPE);
+    if (this.hoverTimeout) window.clearTimeout(this.hoverTimeout);
     this.dynamicStyleElement.remove();
     document.body.classList.remove("np-edit-locked");
     this.removeCustomPopover();
@@ -224,7 +227,6 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
         view.containerEl.style.removeProperty("--np-image-url");
       }
     });
-    document.querySelectorAll(".np-image-container").forEach((el) => el.remove());
   }
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -247,7 +249,6 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       if (isTargetFolder && hasFrontmatter) {
         container.classList.add("is-novel-profile");
         this.updateImageState(view, file);
-        setTimeout(() => this.autoExpandProperties(view), 150);
       } else {
         container.classList.remove("is-novel-profile");
         container.removeAttribute("data-has-image");
@@ -263,20 +264,7 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       view.containerEl.style.removeProperty("--np-image-url");
       return;
     }
-    const imagePropValue = frontmatter[this.settings.imagePropertyName];
-    let imagePath = "";
-    if (typeof imagePropValue === "string") {
-      const linkMatch = imagePropValue.match(/\[\[(.*?)\]\]/);
-      if (linkMatch) {
-        const linkText = linkMatch[1].split("|")[0].trim();
-        const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, file.path);
-        if (linkedFile) {
-          imagePath = this.app.vault.getResourcePath(linkedFile);
-        }
-      } else {
-        imagePath = imagePropValue.startsWith("http") ? imagePropValue : "";
-      }
-    }
+    const imagePath = this.resolveImagePath(frontmatter[this.settings.imagePropertyName], file);
     if (imagePath) {
       view.containerEl.setAttribute("data-has-image", "true");
       view.containerEl.style.setProperty("--np-image-url", `url("${imagePath}")`);
@@ -285,13 +273,7 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       view.containerEl.style.removeProperty("--np-image-url");
     }
   }
-  autoExpandProperties(view) {
-    const metadataContainer = view.contentEl.querySelector(".metadata-container");
-    if (metadataContainer && metadataContainer.classList.contains("is-collapsed")) {
-      const heading = metadataContainer.querySelector(".metadata-properties-heading");
-      heading?.click();
-    }
-  }
+  // 🌟 核心：仅保留动态 CSS（依赖设置参数的 CSS）
   updateDynamicStyles() {
     let css = `:root { --np-image-width: ${this.settings.imageWidth}px; }`;
     if (this.settings.hidePropertyNames) {
@@ -302,41 +284,13 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
 				body .is-novel-profile .metadata-property { border-bottom: none !important; padding-left: 0 !important; }
 			`;
     }
-    if (this.settings.hideAddButton) {
-      css += `body .is-novel-profile .metadata-add-button { display: none !important; }`;
-    }
+    if (this.settings.hideAddButton) css += `body .is-novel-profile .metadata-add-button { display: none !important; }`;
     const propsToHide = this.settings.hideProperties.split(/[,，]+/).map((p) => p.trim()).filter((p) => p.length > 0);
-    if (!propsToHide.includes(this.settings.imagePropertyName)) {
-      propsToHide.push(this.settings.imagePropertyName);
-    }
+    if (!propsToHide.includes(this.settings.imagePropertyName)) propsToHide.push(this.settings.imagePropertyName);
     propsToHide.forEach((prop) => {
       const safeProp = CSS.escape(prop);
-      css += `
-				body .is-novel-profile .metadata-property[data-property-key="${safeProp}"] {
-					display: none !important;
-				}
-			`;
+      css += `body .is-novel-profile .metadata-property[data-property-key="${safeProp}"] { display: none !important; }`;
     });
-    css += `
-			body.np-edit-locked .is-novel-profile .metadata-properties { pointer-events: none !important; }
-			body.np-edit-locked .is-novel-profile a.internal-link,
-			body.np-edit-locked .is-novel-profile a.external-link,
-			body.np-edit-locked .is-novel-profile .metadata-link-inner {
-				pointer-events: auto !important;
-				cursor: pointer !important;
-			}
-			body.np-edit-locked .is-novel-profile .multi-select-pill-remove-button,
-			body.np-edit-locked .is-novel-profile .metadata-add-button,
-			body.np-edit-locked .is-novel-profile .metadata-property-value svg { display: none !important; }
-			body.np-edit-locked .is-novel-profile .metadata-property-value input,
-			body.np-edit-locked .is-novel-profile .metadata-property-value div[contenteditable="true"],
-			body.np-edit-locked .is-novel-profile .metadata-property-value .metadata-input-text {
-				box-shadow: none !important;
-				border: none !important;
-				background-color: transparent !important;
-				cursor: default !important;
-			}
-		`;
     const scale = this.settings.popoverScale || 1;
     css += `
 			.np-custom-popover {
@@ -349,6 +303,249 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
 			}
 		`;
     this.dynamicStyleElement.textContent = css;
+  }
+};
+var NovelTimelineView = class extends import_obsidian.ItemView {
+  constructor(leaf, plugin) {
+    super(leaf);
+    this.timelineNodes = [];
+    this.lastScrolledNode = null;
+    this.isClickNavigating = false;
+    this.updateVersion = 0;
+    this.isInitialLoading = false;
+    this.plugin = plugin;
+    this.debouncedScrollSync = (0, import_obsidian.debounce)((view) => {
+      if (this.isClickNavigating || this.isInitialLoading) return;
+      const line = this.getVisibleLine(view);
+      this.syncHighlightToLine(line, false, false);
+    }, 50, true);
+    this.debouncedUpdateView = (0, import_obsidian.debounce)(this.updateView.bind(this), 500, true);
+  }
+  getViewType() {
+    return TIMELINE_VIEW_TYPE;
+  }
+  getDisplayText() {
+    return "\u4E8B\u4EF6\u7EBF";
+  }
+  getIcon() {
+    return "clock";
+  }
+  getVisibleLine(view) {
+    try {
+      const cm = view.editor.cm;
+      if (cm && cm.scrollDOM) {
+        const block = cm.lineBlockAtHeight(cm.scrollDOM.scrollTop + 100);
+        if (block) return view.editor.offsetToPos(block.from).line;
+      }
+    } catch (e) {
+    }
+    return view?.editor?.getCursor()?.line || 0;
+  }
+  async onOpen() {
+    this.updateView();
+    this.registerEvent(this.app.workspace.on("file-open", () => {
+      this.isInitialLoading = true;
+      this.updateView();
+      setTimeout(() => {
+        this.isInitialLoading = false;
+      }, 300);
+    }));
+    this.registerEvent(this.app.vault.on("modify", (file) => {
+      if (file === this.app.workspace.getActiveFile()) {
+        this.debouncedUpdateView(true);
+      }
+    }));
+    this.registerEvent(this.app.workspace.on("editor-change", (editor, view) => {
+      if (this.isClickNavigating || this.isInitialLoading) return;
+      if (view === this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView)) {
+        this.syncHighlightToLine(this.getVisibleLine(view), false, false);
+      }
+    }));
+    const workspaceEl = this.app.workspace.containerEl;
+    this.registerDomEvent(workspaceEl, "scroll", (e) => {
+      if (this.isClickNavigating || this.isInitialLoading) return;
+      const target = e.target;
+      if (target?.classList?.contains("cm-scroller")) {
+        const activeView = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
+        if (activeView && activeView.editor.cm?.scrollDOM === target) {
+          this.debouncedScrollSync(activeView);
+        }
+      }
+    }, { capture: true });
+  }
+  async onClose() {
+    this.contentEl.empty();
+    this.timelineNodes = [];
+  }
+  async updateView(maintainScroll = false) {
+    const currentVersion = ++this.updateVersion;
+    const container = this.contentEl;
+    let savedScrollTop = 0;
+    if (maintainScroll) {
+      const oldTimeline = container.querySelector(".np-timeline-container");
+      if (oldTimeline) savedScrollTop = oldTimeline.scrollTop;
+    }
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile) {
+      container.empty();
+      container.createDiv({ cls: "np-timeline-empty", text: "\u8BF7\u6253\u5F00\u4E00\u4E2A\u5305\u542B\u4E8B\u4EF6\u8BB0\u5F55\u7684\u7B14\u8BB0\u3002" });
+      return;
+    }
+    const content = await this.app.vault.cachedRead(activeFile);
+    if (currentVersion !== this.updateVersion) return;
+    container.empty();
+    this.timelineNodes = [];
+    const lines = content.split("\n");
+    const sectionsData = [];
+    let currentSection = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const headingMatch = line.match(/^##\s+(.*)/);
+      if (headingMatch) {
+        if (currentSection) sectionsData.push(currentSection);
+        currentSection = {
+          title: headingMatch[1].trim().replace(/\[\[|\]\]/g, ""),
+          line: i,
+          contentLines: []
+        };
+      } else if (currentSection) {
+        currentSection.contentLines.push(line);
+      }
+    }
+    if (currentSection) sectionsData.push(currentSection);
+    if (sectionsData.length === 0) {
+      container.createDiv({ cls: "np-timeline-empty", text: '\u5F53\u524D\u7B14\u8BB0\u6CA1\u6709\u68C0\u6D4B\u5230 "## \u6807\u9898" \u683C\u5F0F\u7684\u4E8B\u4EF6\u3002' });
+      return;
+    }
+    const timelineContainer = container.createDiv({ cls: "np-timeline-container" });
+    const isInitialLoad = !maintainScroll;
+    if (isInitialLoad) {
+      timelineContainer.style.opacity = "0";
+    }
+    for (const section of sectionsData) {
+      let time = "", characterName = "", causeText = "", resultText = "";
+      const sectionText = section.contentLines.join("\n");
+      const timeMatch = sectionText.match(/-\s+(?:\*\*)*时间(?:\*\*)*\s*[：:]\s*(.*)/);
+      if (timeMatch) time = timeMatch[1].trim();
+      const charMatch = sectionText.match(/-\s+(?:\*\*)*人物(?:\*\*)*\s*[：:]\s*(.*)/);
+      if (charMatch) {
+        const linkMatch = charMatch[1].match(/\[\[(.*?)\]\]/);
+        if (linkMatch) characterName = linkMatch[1].split("|")[0].trim();
+      }
+      const causeMatch = sectionText.match(/-\s+(?:\*\*)*起因(?:\*\*)*\s*[：:]\s*(.*)/);
+      if (causeMatch) causeText = causeMatch[1].trim().replace(/\[\[|\]\]/g, "");
+      const resultMatch = sectionText.match(/-\s+(?:\*\*)*结果(?:\*\*)*\s*[：:]\s*(.*)/);
+      if (resultMatch) resultText = resultMatch[1].trim().replace(/\[\[|\]\]/g, "");
+      if (!time && !characterName && !causeText && !resultText) continue;
+      const itemEl = timelineContainer.createDiv({ cls: "np-timeline-item" });
+      this.timelineNodes.push({ el: itemEl, line: section.line });
+      itemEl.onclick = () => {
+        let view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
+        if (!view) {
+          const leaves = this.app.workspace.getLeavesOfType("markdown");
+          if (leaves.length > 0) view = leaves[0].view;
+        }
+        if (view && view.editor) {
+          this.isClickNavigating = true;
+          this.app.workspace.setActiveLeaf(view.leaf, { focus: true });
+          const cm = view.editor.cm;
+          if (cm) {
+            const offset = view.editor.posToOffset({ line: section.line, ch: 0 });
+            cm.dispatch({ selection: { anchor: offset, head: offset } });
+            const lineInfo = cm.lineBlockAt(offset);
+            if (lineInfo) {
+              cm.scrollDOM.scrollTo({ top: Math.max(0, lineInfo.top - 60), behavior: "smooth" });
+            }
+          } else {
+            view.editor.setCursor({ line: section.line, ch: 0 });
+          }
+          this.syncHighlightToLine(section.line, true, false);
+          setTimeout(() => {
+            this.isClickNavigating = false;
+          }, 800);
+        }
+      };
+      const leftEl = itemEl.createDiv({ cls: "np-timeline-left" });
+      const cardEl = leftEl.createDiv({ cls: "np-timeline-card" });
+      if (characterName) {
+        cardEl.createDiv({ cls: "np-timeline-name", text: characterName });
+        const charFile = this.app.metadataCache.getFirstLinkpathDest(characterName, activeFile.path);
+        if (charFile) {
+          const cache = this.app.metadataCache.getFileCache(charFile);
+          const fm = cache?.frontmatter;
+          if (fm && fm[this.plugin.settings.imagePropertyName]) {
+            const imgPath = this.plugin.resolveImagePath(fm[this.plugin.settings.imagePropertyName], charFile);
+            if (imgPath) cardEl.style.backgroundImage = `url("${imgPath}")`;
+          }
+        }
+      } else {
+        cardEl.style.display = "none";
+      }
+      if (time) leftEl.createDiv({ cls: "np-timeline-time", text: time });
+      const dividerEl = itemEl.createDiv({ cls: "np-timeline-divider" });
+      dividerEl.createDiv({ cls: "np-timeline-line" });
+      dividerEl.createDiv({ cls: "np-timeline-dot" });
+      const rightEl = itemEl.createDiv({ cls: "np-timeline-right" });
+      rightEl.createDiv({ cls: "np-timeline-title", text: section.title });
+      if (causeText || resultText) {
+        const descEl = rightEl.createDiv({ cls: "np-timeline-desc" });
+        if (causeText) {
+          const causeDiv = descEl.createDiv({ cls: "np-timeline-cause" });
+          causeDiv.innerHTML = `<strong>\u8D77\u56E0\uFF1A</strong>${causeText}`;
+        }
+        if (resultText) {
+          const resultDiv = descEl.createDiv({ cls: "np-timeline-result" });
+          resultDiv.innerHTML = `<strong>\u7ED3\u679C\uFF1A</strong>${resultText}`;
+        }
+      }
+    }
+    if (timelineContainer.children.length === 0) {
+      timelineContainer.createDiv({ cls: "np-timeline-empty", text: "\u6CA1\u6709\u5339\u914D\u5230\u5305\u542B \u65F6\u95F4\u3001\u8D77\u56E0\u3001\u7ED3\u679C \u7684\u4E8B\u4EF6\u8BB0\u5F55\u3002" });
+      if (isInitialLoad) timelineContainer.style.opacity = "1";
+    } else {
+      const view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
+      if (view && view.editor) {
+        if (isInitialLoad) {
+          setTimeout(() => {
+            if (currentVersion === this.updateVersion) {
+              this.syncHighlightToLine(this.getVisibleLine(view), false, true);
+              timelineContainer.style.transition = "opacity 0.15s ease-out";
+              timelineContainer.style.opacity = "1";
+            }
+          }, 100);
+        } else {
+          this.syncHighlightToLine(this.getVisibleLine(view), maintainScroll, false);
+        }
+      }
+      if (maintainScroll) {
+        timelineContainer.scrollTop = savedScrollTop;
+      }
+    }
+  }
+  syncHighlightToLine(targetLine, preventScroll = false, isInitialLoad = false) {
+    if (!this.timelineNodes || this.timelineNodes.length === 0) return;
+    let activeNode = null;
+    for (const node of this.timelineNodes) {
+      if (targetLine >= node.line) {
+        activeNode = node;
+      } else {
+        break;
+      }
+    }
+    this.timelineNodes.forEach((node) => {
+      if (activeNode && node === activeNode) {
+        node.el.classList.add("is-active");
+      } else {
+        node.el.classList.remove("is-active");
+      }
+    });
+    if (!preventScroll && activeNode && this.lastScrolledNode !== activeNode.el) {
+      const scrollMode = isInitialLoad ? "auto" : "smooth";
+      activeNode.el.scrollIntoView({ behavior: scrollMode, block: "center" });
+    }
+    if (activeNode) {
+      this.lastScrolledNode = activeNode.el;
+    }
   }
 };
 var NovelProfileSettingTab = class extends import_obsidian.PluginSettingTab {
@@ -374,6 +571,10 @@ var NovelProfileSettingTab = class extends import_obsidian.PluginSettingTab {
     }));
     new import_obsidian.Setting(containerEl).setName("\u9690\u85CF\u5C5E\u6027\u540D\u79F0").setDesc("\u662F\u5426\u9690\u85CF\u5C5E\u6027\u524D\u9762\u7684\u540D\u79F0(Key)\uFF0C\u53EA\u663E\u793A\u503C(Value)\u3002").addToggle((toggle) => toggle.setValue(this.plugin.settings.hidePropertyNames).onChange(async (value) => {
       this.plugin.settings.hidePropertyNames = value;
+      await this.plugin.saveSettings();
+    }));
+    new import_obsidian.Setting(containerEl).setName("\u9690\u85CF\u6307\u5B9A\u7684\u5C5E\u6027").setDesc("\u4E0D\u60F3\u663E\u793A\u5728\u5361\u7247\u91CC\u7684\u5C5E\u6027\uFF0C\u652F\u6301\u4E2D\u82F1\u6587\u9017\u53F7\u5206\u9694\u3002\u4F8B\u5982\uFF1Atags, aliases, \u72B6\u6001").addText((text) => text.setPlaceholder("tags, aliases").setValue(this.plugin.settings.hideProperties).onChange(async (value) => {
+      this.plugin.settings.hideProperties = value;
       await this.plugin.saveSettings();
     }));
     new import_obsidian.Setting(containerEl).setName("\u9690\u85CF\u6DFB\u52A0\u5C5E\u6027\u6309\u94AE").setDesc("\u662F\u5426\u9690\u85CF\u5E95\u90E8\u84DD\u8272\u7684\u201C\u6DFB\u52A0\u7B14\u8BB0\u5C5E\u6027\u201D\u6309\u94AE\uFF0C\u8BA9\u754C\u9762\u66F4\u6E05\u723D\u3002").addToggle((toggle) => toggle.setValue(this.plugin.settings.hideAddButton).onChange(async (value) => {

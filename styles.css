@@ -3,131 +3,6 @@
 /* ======================================================= */
 body .is-novel-profile .metadata-properties-heading { display: none; }
 
-body .is-novel-profile .metadata-container {
-    display: flex !important;
-    flex-direction: row;
-    align-items: stretch;
-    gap: 30px; 
-    background-color: var(--background-secondary);
-    padding: 20px;
-    border-radius: 12px;
-    margin: 15px 0 25px 0;
-    border: 1px solid var(--background-modifier-border);
-}
-
-body .is-novel-profile[data-has-image="true"] .metadata-container::before {
-    content: "";
-    display: block;
-    width: var(--np-image-width, 150px);
-    flex-shrink: 0;
-    background-image: var(--np-image-url);
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    border-radius: 12px;
-    box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.4);
-}
-
-body .is-novel-profile .metadata-content {
-    flex-grow: 1;
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-body .is-novel-profile .metadata-property-icon { opacity: 0.4; }
-body .is-novel-profile .metadata-container.is-collapsed .metadata-content { display: flex; }
-
-
-/* ======================================================= */
-/* 2. 独家打造：专属自定义悬浮名片 (终极比例对齐版)         */
-/* ======================================================= */
-
-/* 拦截并隐藏 Obsidian 原生的悬浮窗 */
-body.np-showing-custom-popover .hover-popover {
-    display: none !important; 
-}
-
-/* 我们自己建造的完美名片容器 */
-.np-custom-popover {
-    position: fixed;
-    z-index: 99999;
-    background-color: var(--background-secondary);
-    border: 1px solid var(--background-modifier-border);
-    border-radius: 12px;
-    padding: 20px 30px 20px 20px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-    display: flex;
-    flex-direction: row;
-    align-items: stretch; /* 保证左右对齐 */
-    gap: 30px;
-    width: max-content; 
-    max-width: 800px;
-    pointer-events: none; 
-    
-    /* 弹出动画 */
-    opacity: 0;
-    transform: translateY(5px);
-    animation: np-popover-fade 0.2s forwards;
-}
-
-@keyframes np-popover-fade {
-    to { opacity: 1; transform: translateY(0); }
-}
-
-/* 专属悬浮窗：左侧图片 */
-.np-custom-popover-img {
-    flex-shrink: 0;
-    background-size: cover;
-    background-position: center;
-    background-repeat: no-repeat;
-    border-radius: 12px;
-    box-shadow: 1px 1px 4px rgba(0, 0, 0, 0.4);
-    /* ⭐️ 核心安全网：图片最低高度强制设为宽度的 1.35 倍！
-       这样就算文字只有一两行，图片也永远是标准的竖屏长方形。
-       如果文字有十几行，它又能跟着文字一起向下延伸，完美自适应！ */
-    min-height: calc(var(--np-image-width, 150px) * 1.25);
-}
-
-/* 专属悬浮窗：右侧文字内容 */
-.np-custom-popover-content {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    /* ⭐️ 放大行距：撑开文字排版，让它跟长方形的图片比例更协调，不再显得空旷 */
-    gap: 18px; 
-}
-
-/* 单行属性 */
-.np-custom-prop {
-    display: flex;
-    flex-direction: row;
-    align-items: center;
-    gap: 15px;
-    /* ⭐️ 放大字号：精准对齐原生属性区的大小 */
-    font-size: 1.1em; 
-}
-
-/* 属性名 (Key) */
-.np-custom-key {
-    color: var(--text-muted);
-    min-width: max-content;
-}
-
-/* 属性值 (Value) */
-.np-custom-val {
-    color: var(--text-normal);
-    font-weight: 500;
-    white-space: nowrap; /* 绝对不许换行 */
-}
-
-
-/* ======================================================= */
-/* 1. 正文内：小说角色卡片核心布局                         */
-/* ======================================================= */
-body .is-novel-profile .metadata-properties-heading { display: none; }
-
 body .is-novel-profile .metadata-container:not(:empty) {
     display: flex !important;
     flex-direction: row;
@@ -140,7 +15,6 @@ body .is-novel-profile .metadata-container:not(:empty) {
     border: 1px solid var(--background-modifier-border);
 }
 
-/* 如果容器内部没有属性行，也不显示边框 */
 body .is-novel-profile .metadata-container.is-empty {
     display: none !important;
 }
@@ -169,17 +43,34 @@ body .is-novel-profile .metadata-content {
 body .is-novel-profile .metadata-property-icon { opacity: 0.4; }
 body .is-novel-profile .metadata-container.is-collapsed .metadata-content { display: flex; }
 
+/* 锁定编辑状态的样式 */
+body.np-edit-locked .is-novel-profile .metadata-properties { pointer-events: none !important; }
+body.np-edit-locked .is-novel-profile a.internal-link,
+body.np-edit-locked .is-novel-profile a.external-link,
+body.np-edit-locked .is-novel-profile .metadata-link-inner {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+}
+body.np-edit-locked .is-novel-profile .multi-select-pill-remove-button,
+body.np-edit-locked .is-novel-profile .metadata-add-button,
+body.np-edit-locked .is-novel-profile .metadata-property-value svg { display: none !important; }
+body.np-edit-locked .is-novel-profile .metadata-property-value input,
+body.np-edit-locked .is-novel-profile .metadata-property-value div[contenteditable="true"],
+body.np-edit-locked .is-novel-profile .metadata-property-value .metadata-input-text {
+    box-shadow: none !important;
+    border: none !important;
+    background-color: transparent !important;
+    cursor: default !important;
+}
+
 
 /* ======================================================= */
 /* 2. 独家打造：专属自定义悬浮名片 (终极比例对齐版)         */
 /* ======================================================= */
-
-/* 拦截并隐藏 Obsidian 原生的悬浮窗 */
 body.np-showing-custom-popover .hover-popover {
     display: none !important; 
 }
 
-/* 我们自己建造的完美名片容器 (默认横向模式) */
 .np-custom-popover {
     position: fixed;
     z-index: 99999;
@@ -195,18 +86,8 @@ body.np-showing-custom-popover .hover-popover {
     width: max-content; 
     max-width: 800px;
     pointer-events: none; 
-    
-    /* 弹出动画 */
-    opacity: 0;
-    transform: translateY(5px);
-    animation: np-popover-fade 0.2s forwards;
 }
 
-@keyframes np-popover-fade {
-    to { opacity: 1; transform: translateY(0); }
-}
-
-/* 左侧图片 */
 .np-custom-popover-img {
     flex-shrink: 0;
     background-size: cover;
@@ -217,7 +98,6 @@ body.np-showing-custom-popover .hover-popover {
     min-height: calc(var(--np-image-width, 150px) * 1.25);
 }
 
-/* 右侧文字内容 */
 .np-custom-popover-content {
     display: flex;
     flex-direction: column;
@@ -225,7 +105,6 @@ body.np-showing-custom-popover .hover-popover {
     gap: 18px; 
 }
 
-/* 单行属性 */
 .np-custom-prop {
     display: flex;
     flex-direction: row;
@@ -234,13 +113,11 @@ body.np-showing-custom-popover .hover-popover {
     font-size: 1.1em; 
 }
 
-/* 属性名 */
 .np-custom-key {
     color: var(--text-muted);
     min-width: max-content;
 }
 
-/* 属性值 */
 .np-custom-val {
     color: var(--text-normal);
     font-weight: 500;
@@ -249,80 +126,17 @@ body.np-showing-custom-popover .hover-popover {
 
 
 /* ======================================================= */
-/* 3. 极简版悬浮名片 (图3：竖向卡牌模式)                    */
+/* 3. 极简版悬浮名片 (竖向卡牌模式)                        */
 /* ======================================================= */
-
-/* 开启极简模式后的整体容器变化 */
 .np-custom-popover.is-minimal {
     flex-direction: column;
-    justify-content: flex-end; /* 文字沉底 */
+    justify-content: flex-end; 
     padding: 0;
     gap: 0;
-    /* 宽度沿用图片宽度的设置并适当放大，保证竖版比例美观 */
     width: calc(var(--np-image-width, 150px) * 1.4); 
     min-height: calc(var(--np-image-width, 150px) * 1.9); 
-
     overflow: hidden;
 }
-
-/* 极简模式下：图片变成全屏幕背景 */
-.np-custom-popover.is-minimal .np-custom-popover-img {
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 100% !important; /* 强制拉宽 */
-    height: 100%;
-    min-height: unset;
-    border-radius: 0;
-    box-shadow: none;
-    z-index: 1;
-}
-
-/* 如果存在图片，底部增加平滑的纯黑渐变遮罩，为了看清白色文字 */
-.np-custom-popover.is-minimal.has-image::after {
-    content: "";
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    height: 65%; /* 遮盖底部 65% */
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.4) 20%, rgba(0, 0, 0, 0) 100%);
-    z-index: 2;
-    pointer-events: none;
-}
-
-/* 文字区块浮动在遮罩和图片的最上层 */
-.np-custom-popover.is-minimal .np-custom-popover-content {
-    position: relative;
-    z-index: 3;
-    padding: 25px 20px;
-    width: 100%;
-    box-sizing: border-box;
-    gap: 12px;
-}
-
-/* 存在图片时，强制将文字反转为白色系，并加上文字阴影 */
-.np-custom-popover.is-minimal.has-image .np-custom-key {
-    color: rgba(255, 255, 255, 0.75);
-}
-
-.np-custom-popover.is-minimal.has-image .np-custom-val {
-    color: #ffffff;
-    text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.8);
-}
-
-/* 降级处理：如果没有图片，排版居中显示 */
-.np-custom-popover.is-minimal:not(.has-image) .np-custom-popover-content {
-    height: 100%;
-    justify-content: center;
-}
-
-
-
-
-
-
-
 
 .np-custom-popover.is-minimal .np-custom-popover-img {
     position: absolute;
@@ -334,8 +148,238 @@ body.np-showing-custom-popover .hover-popover {
     border-radius: 0;
     box-shadow: none;
     z-index: 1;
-    /* 建议确认这里有 background-size: cover; 
-       虽然你在横向模式加了，但再确认一下能保证竖向不拉伸 */
     background-size: cover;
     background-position: center;
 }
+
+.np-custom-popover.is-minimal.has-image::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 65%; 
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.4) 20%, rgba(0, 0, 0, 0) 100%);
+    z-index: 2;
+    pointer-events: none;
+}
+
+.np-custom-popover.is-minimal .np-custom-popover-content {
+    position: relative;
+    z-index: 3;
+    padding: 25px 20px;
+    width: 100%;
+    box-sizing: border-box;
+    gap: 12px;
+}
+
+.np-custom-popover.is-minimal.has-image .np-custom-key {
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.np-custom-popover.is-minimal.has-image .np-custom-val {
+    color: #ffffff;
+    text-shadow: 1px 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+.np-custom-popover.is-minimal:not(.has-image) .np-custom-popover-content {
+    height: 100%;
+    justify-content: center;
+}
+
+/* ======================================================= */
+/* 4. 侧边栏事件时间线 (呼吸卡片、发光竖线、精准对齐版)     */
+/* ======================================================= */
+.np-timeline-container {
+    padding: 10px 10px 40px 10px; /* 两侧留白，让卡片不贴边 */
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    height: 100%;
+}
+
+.np-timeline-empty {
+    text-align: center;
+    color: var(--text-muted);
+    margin-top: 50px;
+    font-size: 0.9em;
+}
+
+/* 🌟 卡片主体：增加边距、呼吸感、悬浮反馈 */
+.np-timeline-item {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    position: relative;
+    cursor: pointer;
+    border-radius: 12px; /* 圆角更大 */
+    padding: 12px 10px; /* 内部留白 */
+    margin-bottom: 10px; /* 🌟 关键：项目之间的缝隙，再也不会挤在一起了 */
+    background-color: transparent;
+    transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+.np-timeline-item:hover {
+    background-color: var(--background-modifier-hover);
+    border-color: var(--background-modifier-border-hover);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); /* 轻微浮动感 */
+}
+
+
+/* 左侧信息区 */
+.np-timeline-left {
+    width: 65px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding-top: 2px; /* 微调与标题对齐 */
+}
+
+.np-timeline-card {
+    width: 60px;
+    height: 80px;
+    background-color: var(--background-secondary);
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 1px 2px 2px rgba(0,0,0,0.5); 
+    background-size: cover;
+    background-position: center;
+    display: flex;
+    align-items: flex-end;
+}
+
+.np-timeline-card::after {
+    content: "";
+    position: absolute;
+    bottom: 0; left: 0; right: 0; height: 60%;
+    background: linear-gradient(to top, rgba(0,0,0,0.3), transparent);
+    pointer-events: none;
+}
+
+.np-timeline-name {
+    position: relative;
+    z-index: 2;
+    width: 100%;
+    text-align: center;
+    color: #ffffff;
+    font-size: 0.7em;
+    font-weight: 600;
+    padding: 6px 2px;
+    text-shadow: 0px 1px 3px rgba(0,0,0,0.9);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.np-timeline-time {
+    margin-top: 8px;
+    font-size: 0.75em;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-align: center;
+}
+
+/* 🌟 分割线与圆点容器 */
+.np-timeline-divider {
+    width: 35px; 
+    flex-shrink: 0;
+    position: relative;
+}
+
+/* 🌟 竖线提亮：使用主题强调色 */
+.np-timeline-line {
+    position: absolute;
+    top: 0;
+    bottom: -40px; /* 向下延伸穿过缝隙 */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 3px;
+    background-color: var(--interactive-accent); /* 提亮竖线 */
+    opacity: 0.8; /* 默认半透明微光 */
+    box-shadow: 0 0 4px rgba(var(--interactive-accent-rgb), 0.2);
+    transition: opacity 0.3s ease;
+}
+
+.np-timeline-item:last-child .np-timeline-line { 
+    background: linear-gradient(to bottom, var(--interactive-accent) 60%, transparent 100%);
+    bottom: 0;
+}
+
+.np-timeline-item.is-active .np-timeline-line {
+    opacity: 0.85; /* 选中时竖线彻底变亮 */
+}
+
+/* 🌟 主标题圆点：精准对齐文字中心 */
+.np-timeline-dot {
+    position: absolute;
+    top: 6px; /* 🌟 核心修改：基于标题 font-size 和 line-height 计算的完美中心点 */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 12px; 
+    height: 12px;
+    border-radius: 50%;
+    background-color: var(--text-muted); 
+    border: 2px solid var(--background-primary); /* 镂空描边设计 */
+    z-index: 2;
+    transition: all 0.3s ease;
+}
+
+.np-timeline-item.is-active .np-timeline-dot {
+    background-color: var(--interactive-accent);
+    transform: translateX(-50%) scale(1.2); /* 选中时圆点放大 */
+    box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+/* 右侧文本区 */
+.np-timeline-right {
+    flex-grow: 1;
+    padding-left: 10px;    
+    padding-right: 5px;
+    position: relative;
+    padding-top: 0; /* 归零，由 flex 顶端对齐 */
+}
+
+.np-timeline-title {
+    font-size: 1.1em;
+    font-weight: 700;
+    color: var(--text-normal);
+    margin-bottom: 8px;
+    line-height: 1.3;
+    margin-top: 0; 
+}
+
+.np-timeline-desc {
+    font-size: 0.9em;
+    color: var(--text-muted);
+    line-height: 1.6;
+}
+
+.np-timeline-desc strong {
+    color: var(--text-normal);
+    font-weight: 600;
+    margin-right: 4px;
+}
+
+/* 起因和结果的父容器 */
+.np-timeline-cause, .np-timeline-result {
+    position: relative;
+    margin-bottom: 6px;
+}
+
+/* 🌟 子节点微小圆点：贴合提亮的竖线 */
+.np-timeline-cause::before, .np-timeline-result::before {
+    content: "";
+    position: absolute;
+    left: -27.5px; /* 精确计算：Right padding(10) + Divider半宽(17.5) = 27.5 */
+    transform: translateX(-50%);
+    top: 7px; /* 垂直对齐子节点第一行文字 */
+    width: 6px; 
+    height: 6px;
+    border-radius: 50%;
+    background-color: var(--background-modifier-border);
+    z-index: 2;
+    transition: background-color 0.3s ease;
+}
+

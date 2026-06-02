@@ -1,5 +1,8 @@
-import { App, Plugin, PluginSettingTab, Setting, TFile, MarkdownView, Notice, debounce } from 'obsidian';
+import { App, Plugin, PluginSettingTab, Setting, TFile, MarkdownView, Notice, debounce, ItemView, WorkspaceLeaf } from 'obsidian';
 
+// -----------------------------------------------------
+// 1. 设置接口与默认值
+// -----------------------------------------------------
 interface NovelProfileSettings {
 	targetFolders: string;
 	imagePropertyName: string;
@@ -8,9 +11,9 @@ interface NovelProfileSettings {
 	hideAddButton: boolean;
 	hideProperties: string;
 	defaultLocked: boolean;
-	popoverOnlyCard: boolean; 
-	minimalPopover: boolean; // 🌟 新增：极简版页面预览 (图3模式)
-	popoverScale: number; // 🌟 新增：卡片整体缩放比例
+	popoverOnlyCard: boolean;
+	minimalPopover: boolean;
+	popoverScale: number;
 }
 
 const DEFAULT_SETTINGS: NovelProfileSettings = {
@@ -19,30 +22,45 @@ const DEFAULT_SETTINGS: NovelProfileSettings = {
 	imageWidth: 150,
 	hidePropertyNames: false,
 	hideAddButton: true,
-	hideProperties: 'tags,aliases',
+	hideProperties: 'tags,aliases', // 默认隐藏 tags 和 aliases
 	defaultLocked: true,
 	popoverOnlyCard: true,
-	minimalPopover: false, // 默认关闭，保持原有左右排版
-	popoverScale: 1 // 🌟 新增默认缩放比例为 1.0
+	minimalPopover: false,
+	popoverScale: 1
 }
 
+const TIMELINE_VIEW_TYPE = "novel-timeline-view";
 
+// -----------------------------------------------------
+// 2. 主插件类
+// -----------------------------------------------------
 export default class NovelProfilePlugin extends Plugin {
 	settings: NovelProfileSettings;
 	dynamicStyleElement: HTMLStyleElement;
 	isEditLocked: boolean;
 	isPluginActive: boolean = true;
-	
-	hoverTimeout: NodeJS.Timeout | null = null;
+
+	hoverTimeout: number | null = null;
 	activeCustomPopover: HTMLElement | null = null;
 
 	debouncedProcessLeaves = debounce(this.processAllLeaves.bind(this), 250, true);
 
 	async onload() {
 		await this.loadSettings();
-
 		this.isEditLocked = this.settings.defaultLocked;
 		this.updateLockState();
+
+		this.registerView(TIMELINE_VIEW_TYPE, (leaf) => new NovelTimelineView(leaf, this));
+
+		this.addRibbonIcon('clock', '打开小说事件时间线', () => {
+			this.activateTimelineView();
+		});
+
+		this.addCommand({
+			id: 'open-novel-timeline',
+			name: '打开侧边栏: 小说事件时间线',
+			callback: () => this.activateTimelineView()
+		});
 
 		this.addCommand({
 			id: 'toggle-novel-profile-edit',
@@ -71,19 +89,29 @@ export default class NovelProfilePlugin extends Plugin {
 
 		this.addSettingTab(new NovelProfileSettingTab(this.app, this));
 
-		this.registerEvent(this.app.workspace.on('file-open', () => {
-			this.processAllLeaves();
-		}));
-		
+		this.registerEvent(this.app.workspace.on('file-open', () => this.processAllLeaves()));
 		this.registerEvent(this.app.workspace.on('layout-change', () => this.debouncedProcessLeaves()));
 		this.registerEvent(this.app.metadataCache.on('changed', () => this.debouncedProcessLeaves()));
-		
 		this.registerDomEvent(document, 'mouseover', (e: MouseEvent) => this.handleMouseOver(e));
 		this.registerDomEvent(document, 'mouseout', (e: MouseEvent) => this.handleMouseOut(e));
 
 		this.app.workspace.onLayoutReady(() => {
 			this.processAllLeaves();
 		});
+	}
+
+	async activateTimelineView() {
+		const { workspace } = this.app;
+		let leaf = workspace.getLeavesOfType(TIMELINE_VIEW_TYPE)[0];
+
+		if (!leaf) {
+			const rightLeaf = workspace.getRightLeaf(false);
+			if (rightLeaf) {
+				await rightLeaf.setViewState({ type: TIMELINE_VIEW_TYPE, active: true });
+				leaf = rightLeaf;
+			}
+		}
+		if (leaf) workspace.revealLeaf(leaf);
 	}
 
 	checkIsTargetFile(file: TFile): boolean {
@@ -96,27 +124,17 @@ export default class NovelProfilePlugin extends Plugin {
 
 	handleMouseOver(e: MouseEvent) {
 		if (!this.settings.popoverOnlyCard || !this.isPluginActive) return;
-
 		const target = e.target as HTMLElement;
 		const linkEl = target.closest('.internal-link, .cm-hmd-internal-link') as HTMLElement;
 		if (!linkEl) return;
-
 		let path = linkEl.getAttribute('data-href') || linkEl.textContent;
 		if (!path) return;
-		
-		const cleanPath = path.split('|')[0].split('#')[0].split('^')[0].replace(/\[\[|\]\]/g, '').trim();
-		const file = this.app.metadataCache.getFirstLinkpathDest(cleanPath, "");
-		
-		if (!file) {
-			const fallbackFile = this.app.vault.getMarkdownFiles().find(f => f.basename === cleanPath);
-			if(!fallbackFile) return;
-			if (this.checkIsTargetFile(fallbackFile)) {
-				this.triggerCustomPopover(fallbackFile, linkEl);
-			}
-			return;
-		}
 
-		if (this.checkIsTargetFile(file)) {
+		const cleanPath = path.split('|')[0].split('#')[0].split('^')[0].replace(/\[\[|\]\]/g, '').trim();
+		// 原代码在这里进行了性能极差的全库遍历，现已优化：只通过高效的缓存查找
+		const file = this.app.metadataCache.getFirstLinkpathDest(cleanPath, "");
+
+		if (file && this.checkIsTargetFile(file)) {
 			this.triggerCustomPopover(file, linkEl);
 		}
 	}
@@ -124,9 +142,9 @@ export default class NovelProfilePlugin extends Plugin {
 	triggerCustomPopover(file: TFile, linkEl: HTMLElement) {
 		document.body.classList.add('np-showing-custom-popover');
 		if (this.hoverTimeout) clearTimeout(this.hoverTimeout);
-		this.hoverTimeout = setTimeout(() => {
+		this.hoverTimeout = window.setTimeout(() => {
 			this.buildAndShowCustomPopover(file, linkEl);
-		}, 300); 
+		}, 30);
 	}
 
 	handleMouseOut(e: MouseEvent) {
@@ -138,81 +156,61 @@ export default class NovelProfilePlugin extends Plugin {
 	}
 
 	buildAndShowCustomPopover(file: TFile, linkEl: HTMLElement) {
-		this.removeCustomPopover(); 
-
+		this.removeCustomPopover();
 		const cache = this.app.metadataCache.getFileCache(file);
 		const frontmatter = cache?.frontmatter;
 		if (!frontmatter) return;
 
 		const popover = document.createElement('div');
 		popover.className = 'np-custom-popover';
-
-		// 🌟 注入极简模式 class
-		if (this.settings.minimalPopover) {
-			popover.classList.add('is-minimal');
-		}
+		if (this.settings.minimalPopover) popover.classList.add('is-minimal');
 
 		const imgPath = this.resolveImagePath(frontmatter[this.settings.imagePropertyName], file);
 		if (imgPath) {
-			popover.classList.add('has-image'); // 标记存在图片
+			popover.classList.add('has-image');
 			const imgDiv = popover.createDiv('np-custom-popover-img');
 			imgDiv.style.backgroundImage = `url("${imgPath}")`;
-			if (!this.settings.minimalPopover) {
-				imgDiv.style.width = `${this.settings.imageWidth}px`;
-			}
+			if (!this.settings.minimalPopover) imgDiv.style.width = `${this.settings.imageWidth}px`;
 		}
 
 		const contentDiv = popover.createDiv('np-custom-popover-content');
 		const hideProps = this.settings.hideProperties.split(/[,，]+/).map(p => p.trim());
-		hideProps.push(this.settings.imagePropertyName); 
+		hideProps.push(this.settings.imagePropertyName);
 
 		for (const key in frontmatter) {
 			if (hideProps.includes(key)) continue;
-			
 			let val = frontmatter[key];
 			if (val === null || val === undefined || val === '') continue;
 
 			if (Array.isArray(val)) {
 				val = val.map(v => String(v).replace(/\[\[|\]\]/g, '')).join(', ');
 			} else {
-				val = String(val).replace(/\[\[|\]\]/g, ''); 
+				val = String(val).replace(/\[\[|\]\]/g, '');
 			}
 
 			const propRow = contentDiv.createDiv('np-custom-prop');
-			
 			if (!this.settings.hidePropertyNames) {
 				const keySpan = propRow.createSpan('np-custom-key');
 				keySpan.textContent = key;
 			}
-			
 			const valSpan = propRow.createSpan('np-custom-val');
 			valSpan.textContent = val as string;
 		}
 
 		document.body.appendChild(popover);
-		
 		const rect = linkEl.getBoundingClientRect();
 		let top = rect.bottom + 10;
 		let left = rect.left;
 
-		// 🌟 引入缩放系数计算真实的视觉宽高
 		const scale = this.settings.popoverScale || 1;
 		const popoverHeight = popover.offsetHeight * scale;
 		const popoverWidth = popover.offsetWidth * scale;
 
-		// 如果底部超出屏幕，翻转到鼠标上方
-		if (top + popoverHeight > window.innerHeight) {
-			top = rect.top - popoverHeight - 10;
-		}
-		
-		// 如果右侧超出屏幕，往左平移避免被裁切
-		if (left + popoverWidth > window.innerWidth) {
-			left = window.innerWidth - popoverWidth - 20;
-		}
-		
+		if (top + popoverHeight > window.innerHeight) top = rect.top - popoverHeight - 10;
+		if (left + popoverWidth > window.innerWidth) left = window.innerWidth - popoverWidth - 20;
+
 		popover.style.top = `${top}px`;
 		popover.style.left = `${left}px`;
-
 		this.activeCustomPopover = popover;
 	}
 
@@ -227,10 +225,9 @@ export default class NovelProfilePlugin extends Plugin {
 	resolveImagePath(imagePropValue: any, file: TFile): string {
 		if (!imagePropValue) return '';
 		if (typeof imagePropValue !== 'string') return '';
-
 		const linkMatch = imagePropValue.match(/\[\[(.*?)\]\]/);
 		if (linkMatch) {
-			const linkText = linkMatch[1].split('|')[0].trim(); 
+			const linkText = linkMatch[1].split('|')[0].trim();
 			const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, file.path);
 			if (linkedFile) return this.app.vault.getResourcePath(linkedFile);
 		} else {
@@ -242,19 +239,21 @@ export default class NovelProfilePlugin extends Plugin {
 	updateLockState() {
 		if (this.isEditLocked) {
 			document.body.classList.add('np-edit-locked');
-			if (document.activeElement instanceof HTMLElement) {
-				document.activeElement.blur();
-			}
+			if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
 		} else {
 			document.body.classList.remove('np-edit-locked');
 		}
 	}
 
 	onunload() {
+		// 【优化4】关闭插件时，必须从侧边栏完全卸载掉我们自定义的视图，防止报错
+		this.app.workspace.detachLeavesOfType(TIMELINE_VIEW_TYPE);
+
+		if (this.hoverTimeout) window.clearTimeout(this.hoverTimeout);
 		this.dynamicStyleElement.remove();
 		document.body.classList.remove('np-edit-locked');
 		this.removeCustomPopover();
-		
+
 		const leaves = this.app.workspace.getLeavesOfType('markdown');
 		leaves.forEach(leaf => {
 			const view = leaf.view as MarkdownView;
@@ -264,7 +263,6 @@ export default class NovelProfilePlugin extends Plugin {
 				view.containerEl.style.removeProperty('--np-image-url');
 			}
 		});
-		document.querySelectorAll('.np-image-container').forEach(el => el.remove());
 	}
 
 	async loadSettings() {
@@ -278,35 +276,29 @@ export default class NovelProfilePlugin extends Plugin {
 	}
 
 	processAllLeaves() {
-    const leaves = this.app.workspace.getLeavesOfType('markdown');
+		const leaves = this.app.workspace.getLeavesOfType('markdown');
+		leaves.forEach(leaf => {
+			const view = leaf.view as MarkdownView;
+			if (!view || !view.file) return;
 
-    leaves.forEach(leaf => {
-        const view = leaf.view as MarkdownView;
-        if (!view || !view.file) return;
+			const file = view.file;
+			const container = view.containerEl;
 
-        const file = view.file;
-        const container = view.containerEl;
-        
-        // 1. 检查是否在目标文件夹
-        const isTargetFolder = this.checkIsTargetFile(file);
-        
-        // 2. 检查是否有属性内容 (关键逻辑 ✨)
-        const cache = this.app.metadataCache.getFileCache(file);
-        const hasFrontmatter = cache?.frontmatter && Object.keys(cache.frontmatter).length > 0;
+			const isTargetFolder = this.checkIsTargetFile(file);
+			const cache = this.app.metadataCache.getFileCache(file);
+			const hasFrontmatter = cache?.frontmatter && Object.keys(cache.frontmatter).length > 0;
 
-        // 只有同时满足“在文件夹内”且“有属性内容”才显示卡片
-        if (isTargetFolder && hasFrontmatter) {
-            container.classList.add('is-novel-profile');
-            this.updateImageState(view, file);
-            setTimeout(() => this.autoExpandProperties(view), 150);
-        } else {
-            // 否则移除样式，恢复原生外观
-            container.classList.remove('is-novel-profile');
-            container.removeAttribute('data-has-image');
-            container.style.removeProperty('--np-image-url');
-        }
-    });
-}
+			if (isTargetFolder && hasFrontmatter) {
+				container.classList.add('is-novel-profile');
+				this.updateImageState(view, file);
+
+			} else {
+				container.classList.remove('is-novel-profile');
+				container.removeAttribute('data-has-image');
+				container.style.removeProperty('--np-image-url');
+			}
+		});
+	}
 
 	updateImageState(view: MarkdownView, file: TFile) {
 		const cache = this.app.metadataCache.getFileCache(file);
@@ -317,23 +309,7 @@ export default class NovelProfilePlugin extends Plugin {
 			view.containerEl.style.removeProperty('--np-image-url');
 			return;
 		}
-
-		const imagePropValue = frontmatter[this.settings.imagePropertyName];
-		let imagePath = '';
-
-		if (typeof imagePropValue === 'string') {
-			const linkMatch = imagePropValue.match(/\[\[(.*?)\]\]/);
-			if (linkMatch) {
-				const linkText = linkMatch[1].split('|')[0].trim(); 
-				const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, file.path);
-				if (linkedFile) {
-					imagePath = this.app.vault.getResourcePath(linkedFile);
-				}
-			} else {
-				imagePath = imagePropValue.startsWith('http') ? imagePropValue : '';
-			}
-		}
-
+		const imagePath = this.resolveImagePath(frontmatter[this.settings.imagePropertyName], file);
 		if (imagePath) {
 			view.containerEl.setAttribute('data-has-image', 'true');
 			view.containerEl.style.setProperty('--np-image-url', `url("${imagePath}")`);
@@ -343,14 +319,8 @@ export default class NovelProfilePlugin extends Plugin {
 		}
 	}
 
-	autoExpandProperties(view: MarkdownView) {
-		const metadataContainer = view.contentEl.querySelector('.metadata-container');
-		if (metadataContainer && metadataContainer.classList.contains('is-collapsed')) {
-			const heading = metadataContainer.querySelector('.metadata-properties-heading') as HTMLElement;
-			heading?.click(); 
-		}
-	}
 
+	// 🌟 核心：仅保留动态 CSS（依赖设置参数的 CSS）
 	updateDynamicStyles() {
 		let css = `:root { --np-image-width: ${this.settings.imageWidth}px; }`;
 
@@ -362,48 +332,17 @@ export default class NovelProfilePlugin extends Plugin {
 				body .is-novel-profile .metadata-property { border-bottom: none !important; padding-left: 0 !important; }
 			`;
 		}
+		if (this.settings.hideAddButton) css += `body .is-novel-profile .metadata-add-button { display: none !important; }`;
 
-		if (this.settings.hideAddButton) {
-			css += `body .is-novel-profile .metadata-add-button { display: none !important; }`;
-		}
-
+		// 动态隐藏用户填写的指定属性
 		const propsToHide = this.settings.hideProperties.split(/[,，]+/).map(p => p.trim()).filter(p => p.length > 0);
-		if (!propsToHide.includes(this.settings.imagePropertyName)) {
-			propsToHide.push(this.settings.imagePropertyName);
-		}
-
+		if (!propsToHide.includes(this.settings.imagePropertyName)) propsToHide.push(this.settings.imagePropertyName);
 		propsToHide.forEach(prop => {
 			const safeProp = CSS.escape(prop);
-			css += `
-				body .is-novel-profile .metadata-property[data-property-key="${safeProp}"] {
-					display: none !important;
-				}
-			`;
+			css += `body .is-novel-profile .metadata-property[data-property-key="${safeProp}"] { display: none !important; }`;
 		});
 
-		css += `
-			body.np-edit-locked .is-novel-profile .metadata-properties { pointer-events: none !important; }
-			body.np-edit-locked .is-novel-profile a.internal-link,
-			body.np-edit-locked .is-novel-profile a.external-link,
-			body.np-edit-locked .is-novel-profile .metadata-link-inner {
-				pointer-events: auto !important;
-				cursor: pointer !important;
-			}
-			body.np-edit-locked .is-novel-profile .multi-select-pill-remove-button,
-			body.np-edit-locked .is-novel-profile .metadata-add-button,
-			body.np-edit-locked .is-novel-profile .metadata-property-value svg { display: none !important; }
-			body.np-edit-locked .is-novel-profile .metadata-property-value input,
-			body.np-edit-locked .is-novel-profile .metadata-property-value div[contenteditable="true"],
-			body.np-edit-locked .is-novel-profile .metadata-property-value .metadata-input-text {
-				box-shadow: none !important;
-				border: none !important;
-				background-color: transparent !important;
-				cursor: default !important;
-			}
-		`;
-
-
-		// 🌟 注入整体缩放的动态动画与基准点
+		// 动态缩放动画
 		const scale = this.settings.popoverScale || 1;
 		css += `
 			.np-custom-popover {
@@ -415,12 +354,303 @@ export default class NovelProfilePlugin extends Plugin {
 				to { opacity: 1; transform: scale(${scale}) translateY(0); }
 			}
 		`;
-
-
 		this.dynamicStyleElement.textContent = css;
 	}
 }
 
+// -----------------------------------------------------
+// 3. 事件时间线视图 (Timeline View) - 彻底无感定位版
+// -----------------------------------------------------
+class NovelTimelineView extends ItemView {
+	plugin: NovelProfilePlugin;
+	timelineNodes: { el: HTMLElement, line: number }[] = [];
+	lastScrolledNode: HTMLElement | null = null;
+	debouncedScrollSync: Function;
+	isClickNavigating: boolean = false;
+	debouncedUpdateView: Function;
+
+	updateVersion: number = 0;
+	isInitialLoading: boolean = false;
+
+	constructor(leaf: WorkspaceLeaf, plugin: NovelProfilePlugin) {
+		super(leaf);
+		this.plugin = plugin;
+
+		this.debouncedScrollSync = debounce((view: MarkdownView) => {
+			if (this.isClickNavigating || this.isInitialLoading) return;
+			const line = this.getVisibleLine(view);
+			this.syncHighlightToLine(line, false, false);
+		}, 50, true);
+
+		this.debouncedUpdateView = debounce(this.updateView.bind(this), 500, true);
+	}
+
+	getViewType() { return TIMELINE_VIEW_TYPE; }
+	getDisplayText() { return "事件线"; }
+	getIcon() { return "clock"; }
+
+	getVisibleLine(view: MarkdownView): number {
+		try {
+			const cm = (view.editor as any).cm;
+			if (cm && cm.scrollDOM) {
+				const block = cm.lineBlockAtHeight(cm.scrollDOM.scrollTop + 100);
+				if (block) return view.editor.offsetToPos(block.from).line;
+			}
+		} catch (e) { }
+		return view?.editor?.getCursor()?.line || 0;
+	}
+
+	async onOpen() {
+		this.updateView();
+
+		this.registerEvent(this.app.workspace.on('file-open', () => {
+			this.isInitialLoading = true;
+			this.updateView();
+			setTimeout(() => { this.isInitialLoading = false; }, 300);
+		}));
+
+		this.registerEvent(this.app.vault.on('modify', (file) => {
+			if (file === this.app.workspace.getActiveFile()) {
+				this.debouncedUpdateView(true);
+			}
+		}));
+
+		this.registerEvent(this.app.workspace.on('editor-change', (editor, view) => {
+			if (this.isClickNavigating || this.isInitialLoading) return;
+			if (view === this.app.workspace.getActiveViewOfType(MarkdownView)) {
+				this.syncHighlightToLine(this.getVisibleLine(view), false, false);
+			}
+		}));
+
+		const workspaceEl = this.app.workspace.containerEl;
+		this.registerDomEvent(workspaceEl, "scroll", (e) => {
+			if (this.isClickNavigating || this.isInitialLoading) return;
+			const target = e.target as HTMLElement;
+
+			if (target?.classList?.contains("cm-scroller")) {
+				const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (activeView && (activeView.editor as any).cm?.scrollDOM === target) {
+					this.debouncedScrollSync(activeView);
+				}
+			}
+		}, { capture: true });
+	}
+
+	async onClose() {
+		this.contentEl.empty();
+		this.timelineNodes = [];
+	}
+
+	async updateView(maintainScroll: boolean = false) {
+		const currentVersion = ++this.updateVersion;
+		const container = this.contentEl;
+
+		let savedScrollTop = 0;
+		if (maintainScroll) {
+			const oldTimeline = container.querySelector('.np-timeline-container');
+			if (oldTimeline) savedScrollTop = oldTimeline.scrollTop;
+		}
+
+		const activeFile = this.app.workspace.getActiveFile();
+		if (!activeFile) {
+			container.empty();
+			container.createDiv({ cls: 'np-timeline-empty', text: '请打开一个包含事件记录的笔记。' });
+			return;
+		}
+
+		const content = await this.app.vault.cachedRead(activeFile);
+		if (currentVersion !== this.updateVersion) return;
+
+		container.empty();
+		this.timelineNodes = [];
+
+		const lines = content.split('\n');
+		const sectionsData = [];
+		let currentSection = null;
+
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i];
+			const headingMatch = line.match(/^##\s+(.*)/);
+
+			if (headingMatch) {
+				if (currentSection) sectionsData.push(currentSection);
+				currentSection = {
+					title: headingMatch[1].trim().replace(/\[\[|\]\]/g, ''),
+					line: i,
+					contentLines: []
+				};
+			} else if (currentSection) {
+				currentSection.contentLines.push(line);
+			}
+		}
+		if (currentSection) sectionsData.push(currentSection);
+
+		if (sectionsData.length === 0) {
+			container.createDiv({ cls: 'np-timeline-empty', text: '当前笔记没有检测到 "## 标题" 格式的事件。' });
+			return;
+		}
+
+		const timelineContainer = container.createDiv({ cls: 'np-timeline-container' });
+		
+		const isInitialLoad = !maintainScroll;
+		if (isInitialLoad) {
+			// 🌟 终极绝招：隐身！在算出准确位置前，完全变透明！
+			timelineContainer.style.opacity = '0';
+		}
+
+		for (const section of sectionsData) {
+			let time = "", characterName = "", causeText = "", resultText = "";
+			const sectionText = section.contentLines.join('\n');
+
+			const timeMatch = sectionText.match(/-\s+(?:\*\*)*时间(?:\*\*)*\s*[：:]\s*(.*)/);
+			if (timeMatch) time = timeMatch[1].trim();
+
+			const charMatch = sectionText.match(/-\s+(?:\*\*)*人物(?:\*\*)*\s*[：:]\s*(.*)/);
+			if (charMatch) {
+				const linkMatch = charMatch[1].match(/\[\[(.*?)\]\]/);
+				if (linkMatch) characterName = linkMatch[1].split('|')[0].trim();
+			}
+
+			const causeMatch = sectionText.match(/-\s+(?:\*\*)*起因(?:\*\*)*\s*[：:]\s*(.*)/);
+			if (causeMatch) causeText = causeMatch[1].trim().replace(/\[\[|\]\]/g, '');
+
+			const resultMatch = sectionText.match(/-\s+(?:\*\*)*结果(?:\*\*)*\s*[：:]\s*(.*)/);
+			if (resultMatch) resultText = resultMatch[1].trim().replace(/\[\[|\]\]/g, '');
+
+			if (!time && !characterName && !causeText && !resultText) continue;
+
+			const itemEl = timelineContainer.createDiv({ cls: 'np-timeline-item' });
+			this.timelineNodes.push({ el: itemEl, line: section.line });
+
+			itemEl.onclick = () => {
+				let view = this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (!view) {
+					const leaves = this.app.workspace.getLeavesOfType('markdown');
+					if (leaves.length > 0) view = leaves[0].view as MarkdownView;
+				}
+
+				if (view && view.editor) {
+					this.isClickNavigating = true;
+					this.app.workspace.setActiveLeaf(view.leaf, { focus: true });
+
+					const cm = (view.editor as any).cm;
+					if (cm) {
+						const offset = view.editor.posToOffset({ line: section.line, ch: 0 });
+						cm.dispatch({ selection: { anchor: offset, head: offset } });
+						const lineInfo = cm.lineBlockAt(offset);
+						if (lineInfo) {
+							cm.scrollDOM.scrollTo({ top: Math.max(0, lineInfo.top - 60), behavior: 'smooth' });
+						}
+					} else {
+						view.editor.setCursor({ line: section.line, ch: 0 });
+					}
+
+					this.syncHighlightToLine(section.line, true, false);
+					setTimeout(() => { this.isClickNavigating = false; }, 800);
+				}
+			};
+
+			const leftEl = itemEl.createDiv({ cls: 'np-timeline-left' });
+			const cardEl = leftEl.createDiv({ cls: 'np-timeline-card' });
+
+			if (characterName) {
+				cardEl.createDiv({ cls: 'np-timeline-name', text: characterName });
+				const charFile = this.app.metadataCache.getFirstLinkpathDest(characterName, activeFile.path);
+				if (charFile) {
+					const cache = this.app.metadataCache.getFileCache(charFile);
+					const fm = cache?.frontmatter;
+					if (fm && fm[this.plugin.settings.imagePropertyName]) {
+						const imgPath = this.plugin.resolveImagePath(fm[this.plugin.settings.imagePropertyName], charFile);
+						if (imgPath) cardEl.style.backgroundImage = `url("${imgPath}")`;
+					}
+				}
+			} else {
+				cardEl.style.display = 'none';
+			}
+
+			if (time) leftEl.createDiv({ cls: 'np-timeline-time', text: time });
+
+			const dividerEl = itemEl.createDiv({ cls: 'np-timeline-divider' });
+			dividerEl.createDiv({ cls: 'np-timeline-line' });
+			dividerEl.createDiv({ cls: 'np-timeline-dot' });
+
+			const rightEl = itemEl.createDiv({ cls: 'np-timeline-right' });
+			rightEl.createDiv({ cls: 'np-timeline-title', text: section.title });
+
+			if (causeText || resultText) {
+				const descEl = rightEl.createDiv({ cls: 'np-timeline-desc' });
+				if (causeText) {
+					const causeDiv = descEl.createDiv({ cls: 'np-timeline-cause' });
+					causeDiv.innerHTML = `<strong>起因：</strong>${causeText}`;
+				}
+				if (resultText) {
+					const resultDiv = descEl.createDiv({ cls: 'np-timeline-result' });
+					resultDiv.innerHTML = `<strong>结果：</strong>${resultText}`;
+				}
+			}
+		}
+
+		if (timelineContainer.children.length === 0) {
+			timelineContainer.createDiv({ cls: 'np-timeline-empty', text: '没有匹配到包含 时间、起因、结果 的事件记录。' });
+			if (isInitialLoad) timelineContainer.style.opacity = '1';
+		} else {
+			const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (view && view.editor) {
+				if (isInitialLoad) {
+					// 🌟 核心：等 SimplyScroll 彻底干完活（只需100毫秒），在隐身状态下瞬间滚动到底，然后再现身！
+					setTimeout(() => {
+						if (currentVersion === this.updateVersion) {
+							// isInitialLoad 传 true 保证是 auto 瞬间跳跃
+							this.syncHighlightToLine(this.getVisibleLine(view), false, true);
+							timelineContainer.style.transition = 'opacity 0.15s ease-out'; // 增加非常丝滑的淡入效果
+							timelineContainer.style.opacity = '1';
+						}
+					}, 100);
+				} else {
+					this.syncHighlightToLine(this.getVisibleLine(view), maintainScroll, false);
+				}
+			}
+			if (maintainScroll) {
+				timelineContainer.scrollTop = savedScrollTop;
+			}
+		}
+	}
+
+	syncHighlightToLine(targetLine: number, preventScroll: boolean = false, isInitialLoad: boolean = false) {
+		if (!this.timelineNodes || this.timelineNodes.length === 0) return;
+
+		let activeNode: { el: HTMLElement, line: number } | null = null;
+		
+		for (const node of this.timelineNodes) {
+			if (targetLine >= node.line) {
+				activeNode = node;
+			} else {
+				break; 
+			}
+		}
+
+		this.timelineNodes.forEach(node => {
+			if (activeNode && node === activeNode) {
+				node.el.classList.add('is-active');
+			} else {
+				node.el.classList.remove('is-active');
+			}
+		});
+
+		if (!preventScroll && activeNode && this.lastScrolledNode !== activeNode.el) {
+			const scrollMode = isInitialLoad ? 'auto' : 'smooth';
+			activeNode.el.scrollIntoView({ behavior: scrollMode, block: 'center' });
+		}
+
+		if (activeNode) {
+			this.lastScrolledNode = activeNode.el;
+		}
+	}
+}
+
+// -----------------------------------------------------
+// 4. 设置面板
+// -----------------------------------------------------
 class NovelProfileSettingTab extends PluginSettingTab {
 	plugin: NovelProfilePlugin;
 
@@ -478,6 +708,18 @@ class NovelProfileSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
+		// 🌟 恢复：特定属性隐藏输入框
+		new Setting(containerEl)
+			.setName('隐藏指定的属性')
+			.setDesc('不想显示在卡片里的属性，支持中英文逗号分隔。例如：tags, aliases, 状态')
+			.addText(text => text
+				.setPlaceholder('tags, aliases')
+				.setValue(this.plugin.settings.hideProperties)
+				.onChange(async (value) => {
+					this.plugin.settings.hideProperties = value;
+					await this.plugin.saveSettings();
+				}));
+
 		new Setting(containerEl)
 			.setName('隐藏添加属性按钮')
 			.setDesc('是否隐藏底部蓝色的“添加笔记属性”按钮，让界面更清爽。')
@@ -495,7 +737,7 @@ class NovelProfileSettingTab extends PluginSettingTab {
 				.setValue(this.plugin.settings.defaultLocked)
 				.onChange(async (value) => {
 					this.plugin.settings.defaultLocked = value;
-					this.plugin.isEditLocked = value; 
+					this.plugin.isEditLocked = value;
 					this.plugin.updateLockState();
 					await this.plugin.saveSettings();
 				}));
@@ -510,7 +752,6 @@ class NovelProfileSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// 🌟 新增设置项：极简版页面预览
 		new Setting(containerEl)
 			.setName('极简版页面预览 (竖排卡牌模式)')
 			.setDesc('开启后，悬浮预览将变成一张卡牌（类似图3）：图片铺满作为背景，文字悬浮覆盖在底部。关闭则为默认的左右横排卡片。')
@@ -521,8 +762,6 @@ class NovelProfileSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-
-				// 🌟 新增设置项：悬浮卡片整体缩放
 		new Setting(containerEl)
 			.setName('悬浮卡片整体缩放比例')
 			.setDesc('按比例整体缩放悬浮卡片（包括横排和极简模式）。范围 0.5 到 2.0，默认 1.0。')
