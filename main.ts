@@ -400,8 +400,9 @@ class NovelTimelineView extends ItemView {
 		return view?.editor?.getCursor()?.line || 0;
 	}
 
-	async onOpen() {
-		this.updateView();
+	// 🌟 修复：新增 onload 生命周期，将所有事件监听放在这里，防止重复绑定导致内存卡死！
+	onload() {
+		super.onload();
 
 		this.registerEvent(this.app.workspace.on('file-open', () => {
 			this.isInitialLoading = true;
@@ -434,6 +435,11 @@ class NovelTimelineView extends ItemView {
 				}
 			}
 		}, { capture: true });
+	}
+
+	// 🌟 修复：onOpen 现在非常纯净，只负责每次打开时刷新视图内容
+	async onOpen() {
+		this.updateView();
 	}
 
 	async onClose() {
