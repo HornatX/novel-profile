@@ -506,15 +506,38 @@ class NovelTimelineView extends ItemView {
 
 		for (const section of sectionsData) {
 			let time = "", characterName = "", causeText = "", resultText = "";
+			let directImageLink = ""; // 🌟新增：用于存储直接识别到的图片
+
 			const sectionText = section.contentLines.join('\n');
 
 			const timeMatch = sectionText.match(/-\s+(?:\*\*)*时间(?:\*\*)*\s*[：:]\s*(.*)/);
 			if (timeMatch) time = timeMatch[1].trim();
 
+			// 🌟优化：解析人物，支持提取多个人物，并识别当中的图片文件
 			const charMatch = sectionText.match(/-\s+(?:\*\*)*人物(?:\*\*)*\s*[：:]\s*(.*)/);
 			if (charMatch) {
-				const linkMatch = charMatch[1].match(/\[\[(.*?)\]\]/);
-				if (linkMatch) characterName = linkMatch[1].split('|')[0].trim();
+				const rawCharText = charMatch[1];
+				// 匹配所有格式如 [[刘备]] 或 ![[郑飞.jpg]] 的双链
+				const linkMatches = [...rawCharText.matchAll(/!*\[\[(.*?)\]\]/g)];
+				
+				if (linkMatches.length > 0) {
+					for (const match of linkMatches) {
+						const linkText = match[1].split('|')[0].trim();
+						if (linkText.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i)) {
+							if (!directImageLink) directImageLink = linkText; // 保存第一个图片
+						} else {
+							if (!characterName) characterName = linkText; // 保存第一个人名
+						}
+					}
+				}
+				
+				// 兜底：如果没提取到双链人名，则清洗掉图片后，取剩下的纯文本作为人名
+				if (!characterName) {
+					characterName = rawCharText
+						.replace(/!*\[\[(.*?\.(jpg|jpeg|png|gif|webp|bmp))\]\]/ig, '') // 删掉图片双链
+						.replace(/\[\[|\]\]/g, '') // 去除多余括号
+						.split(/[,，、]/)[0].trim();
+				}
 			}
 
 			const causeMatch = sectionText.match(/-\s+(?:\*\*)*起因(?:\*\*)*\s*[：:]\s*(.*)/);
@@ -559,15 +582,31 @@ class NovelTimelineView extends ItemView {
 			const leftEl = itemEl.createDiv({ cls: 'np-timeline-left' });
 			const cardEl = leftEl.createDiv({ cls: 'np-timeline-card' });
 
-			if (characterName) {
-				cardEl.createDiv({ cls: 'np-timeline-name', text: characterName });
-				const charFile = this.app.metadataCache.getFirstLinkpathDest(characterName, activeFile.path);
-				if (charFile) {
-					const cache = this.app.metadataCache.getFileCache(charFile);
-					const fm = cache?.frontmatter;
-					if (fm && fm[this.plugin.settings.imagePropertyName]) {
-						const imgPath = this.plugin.resolveImagePath(fm[this.plugin.settings.imagePropertyName], charFile);
+			if (characterName || directImageLink) {
+				if (characterName) {
+					cardEl.createDiv({ cls: 'np-timeline-name', text: characterName });
+				}
+				
+				// 🌟 优先渲染直接在【人物】字段写上的图片
+				if (directImageLink) {
+					const imgFile = this.app.metadataCache.getFirstLinkpathDest(directImageLink, activeFile.path);
+					if (imgFile) {
+						const imgPath = this.app.vault.getResourcePath(imgFile);
 						if (imgPath) cardEl.style.backgroundImage = `url("${imgPath}")`;
+					} else if (directImageLink.startsWith('http')) {
+						// 甚至支持直接填写的网络图片链接
+						cardEl.style.backgroundImage = `url("${directImageLink}")`;
+					}
+				} else if (characterName) {
+					// 兜底（原逻辑）：从人物笔记的 frontmatter 中查找图片
+					const charFile = this.app.metadataCache.getFirstLinkpathDest(characterName, activeFile.path);
+					if (charFile) {
+						const cache = this.app.metadataCache.getFileCache(charFile);
+						const fm = cache?.frontmatter;
+						if (fm && fm[this.plugin.settings.imagePropertyName]) {
+							const imgPath = this.plugin.resolveImagePath(fm[this.plugin.settings.imagePropertyName], charFile);
+							if (imgPath) cardEl.style.backgroundImage = `url("${imgPath}")`;
+						}
 					}
 				}
 			} else {
