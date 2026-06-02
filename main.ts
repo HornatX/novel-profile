@@ -447,7 +447,7 @@ class NovelTimelineView extends ItemView {
 		this.registerEvent(this.app.workspace.on('editor-change', (editor, view) => {
 			if (this.isClickNavigating || this.isInitialLoading) return;
 			if (this.activeFile && view.file === this.activeFile) {
-				this.syncHighlightToLine(this.getVisibleLine(view), false, false);
+				this.syncHighlightToLine(this.getVisibleLine(view as MarkdownView), false, false);
 			}
 		}));
 
