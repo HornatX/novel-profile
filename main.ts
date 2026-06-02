@@ -418,8 +418,10 @@ class NovelTimelineView extends ItemView {
 
 		this.registerEvent(this.app.workspace.on('editor-change', (editor, view) => {
 			if (this.isClickNavigating || this.isInitialLoading) return;
-			if (view === this.app.workspace.getActiveViewOfType(MarkdownView)) {
-				this.syncHighlightToLine(this.getVisibleLine(view), false, false);
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			// 确保 activeView 存在且与当前变动的 view 是同一个，从而解决类型冲突
+			if (activeView && view === activeView) {
+				this.syncHighlightToLine(this.getVisibleLine(activeView), false, false);
 			}
 		}));
 
@@ -514,29 +516,50 @@ class NovelTimelineView extends ItemView {
 			if (timeMatch) time = timeMatch[1].trim();
 
 			// 🌟优化：解析人物，支持提取多个人物，并识别当中的图片文件
+			// 🌟优化：解析人物，支持提取多个人物，并识别当中的图片文件
 			const charMatch = sectionText.match(/-\s+(?:\*\*)*人物(?:\*\*)*\s*[：:]\s*(.*)/);
 			if (charMatch) {
 				const rawCharText = charMatch[1];
-				// 匹配所有格式如 [[刘备]] 或 ![[郑飞.jpg]] 的双链
+				// 匹配所有带 [[]] 的双链
 				const linkMatches = [...rawCharText.matchAll(/!*\[\[(.*?)\]\]/g)];
 				
-				if (linkMatches.length > 0) {
-					for (const match of linkMatches) {
-						const linkText = match[1].split('|')[0].trim();
-						if (linkText.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i)) {
-							if (!directImageLink) directImageLink = linkText; // 保存第一个图片
-						} else {
-							if (!characterName) characterName = linkText; // 保存第一个人名
-						}
+				for (const match of linkMatches) {
+					const linkText = match[1].split('|')[0].trim();
+					if (linkText.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i)) {
+						if (!directImageLink) directImageLink = linkText; // 提取图片
+					} else {
+						if (!characterName) characterName = linkText; // 提取人名
 					}
 				}
 				
-				// 兜底：如果没提取到双链人名，则清洗掉图片后，取剩下的纯文本作为人名
+				// 兜底1：如果没加 [[]] 括号，但也直接写了图片名
+				if (!directImageLink) {
+					const rawImgMatch = rawCharText.match(/([^\s,，、\|]+\.(?:jpg|jpeg|png|gif|webp|bmp))/i);
+					if (rawImgMatch) directImageLink = rawImgMatch[1];
+				}
+
+				// 兜底2：处理最终显示的人名
 				if (!characterName) {
-					characterName = rawCharText
-						.replace(/!*\[\[(.*?\.(jpg|jpeg|png|gif|webp|bmp))\]\]/ig, '') // 删掉图片双链
-						.replace(/\[\[|\]\]/g, '') // 去除多余括号
-						.split(/[,，、]/)[0].trim();
+					// 先把找到的图片名从原文本中“扣除”
+					let cleanedText = rawCharText;
+					if (directImageLink) {
+						// 转义特殊字符防报错
+						const safeImgLink = directImageLink.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+						cleanedText = cleanedText.replace(new RegExp(`!*\\[\\[${safeImgLink}.*?\\]\\]`, 'g'), '');
+						cleanedText = cleanedText.replace(new RegExp(safeImgLink, 'g'), '');
+					}
+					
+					// 提取剩下文本当人名
+					cleanedText = cleanedText.replace(/\[\[|\]\]/g, '').trim();
+					const parts = cleanedText.split(/[,，、]/).map(p => p.trim()).filter(p => p.length > 0);
+					
+					if (parts.length > 0) {
+						characterName = parts[0];
+					} else if (directImageLink) {
+						// 🌟 终极兜底：如果一行字里只有图片，直接拿图片名当人名（并且去掉 .jpg/.png 等后缀和路径）
+						const baseName = directImageLink.split(/[\/\\]/).pop() || '';
+						characterName = baseName.replace(/\.(jpg|jpeg|png|gif|webp|bmp)$/i, '');
+					}
 				}
 			}
 

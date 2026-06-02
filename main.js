@@ -358,8 +358,9 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
     }));
     this.registerEvent(this.app.workspace.on("editor-change", (editor, view) => {
       if (this.isClickNavigating || this.isInitialLoading) return;
-      if (view === this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView)) {
-        this.syncHighlightToLine(this.getVisibleLine(view), false, false);
+      const activeView = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
+      if (activeView && view === activeView) {
+        this.syncHighlightToLine(this.getVisibleLine(activeView), false, false);
       }
     }));
     const workspaceEl = this.app.workspace.containerEl;
@@ -429,13 +430,42 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
     }
     for (const section of sectionsData) {
       let time = "", characterName = "", causeText = "", resultText = "";
+      let directImageLink = "";
       const sectionText = section.contentLines.join("\n");
       const timeMatch = sectionText.match(/-\s+(?:\*\*)*时间(?:\*\*)*\s*[：:]\s*(.*)/);
       if (timeMatch) time = timeMatch[1].trim();
       const charMatch = sectionText.match(/-\s+(?:\*\*)*人物(?:\*\*)*\s*[：:]\s*(.*)/);
       if (charMatch) {
-        const linkMatch = charMatch[1].match(/\[\[(.*?)\]\]/);
-        if (linkMatch) characterName = linkMatch[1].split("|")[0].trim();
+        const rawCharText = charMatch[1];
+        const linkMatches = [...rawCharText.matchAll(/!*\[\[(.*?)\]\]/g)];
+        for (const match of linkMatches) {
+          const linkText = match[1].split("|")[0].trim();
+          if (linkText.match(/\.(jpg|jpeg|png|gif|webp|bmp)$/i)) {
+            if (!directImageLink) directImageLink = linkText;
+          } else {
+            if (!characterName) characterName = linkText;
+          }
+        }
+        if (!directImageLink) {
+          const rawImgMatch = rawCharText.match(/([^\s,，、\|]+\.(?:jpg|jpeg|png|gif|webp|bmp))/i);
+          if (rawImgMatch) directImageLink = rawImgMatch[1];
+        }
+        if (!characterName) {
+          let cleanedText = rawCharText;
+          if (directImageLink) {
+            const safeImgLink = directImageLink.replace(/[-\/\\^$*+?.()|[\]{}]/g, "\\$&");
+            cleanedText = cleanedText.replace(new RegExp(`!*\\[\\[${safeImgLink}.*?\\]\\]`, "g"), "");
+            cleanedText = cleanedText.replace(new RegExp(safeImgLink, "g"), "");
+          }
+          cleanedText = cleanedText.replace(/\[\[|\]\]/g, "").trim();
+          const parts = cleanedText.split(/[,，、]/).map((p) => p.trim()).filter((p) => p.length > 0);
+          if (parts.length > 0) {
+            characterName = parts[0];
+          } else if (directImageLink) {
+            const baseName = directImageLink.split(/[\/\\]/).pop() || "";
+            characterName = baseName.replace(/\.(jpg|jpeg|png|gif|webp|bmp)$/i, "");
+          }
+        }
       }
       const causeMatch = sectionText.match(/-\s+(?:\*\*)*起因(?:\*\*)*\s*[：:]\s*(.*)/);
       if (causeMatch) causeText = causeMatch[1].trim().replace(/\[\[|\]\]/g, "");
@@ -472,15 +502,27 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
       };
       const leftEl = itemEl.createDiv({ cls: "np-timeline-left" });
       const cardEl = leftEl.createDiv({ cls: "np-timeline-card" });
-      if (characterName) {
-        cardEl.createDiv({ cls: "np-timeline-name", text: characterName });
-        const charFile = this.app.metadataCache.getFirstLinkpathDest(characterName, activeFile.path);
-        if (charFile) {
-          const cache = this.app.metadataCache.getFileCache(charFile);
-          const fm = cache?.frontmatter;
-          if (fm && fm[this.plugin.settings.imagePropertyName]) {
-            const imgPath = this.plugin.resolveImagePath(fm[this.plugin.settings.imagePropertyName], charFile);
+      if (characterName || directImageLink) {
+        if (characterName) {
+          cardEl.createDiv({ cls: "np-timeline-name", text: characterName });
+        }
+        if (directImageLink) {
+          const imgFile = this.app.metadataCache.getFirstLinkpathDest(directImageLink, activeFile.path);
+          if (imgFile) {
+            const imgPath = this.app.vault.getResourcePath(imgFile);
             if (imgPath) cardEl.style.backgroundImage = `url("${imgPath}")`;
+          } else if (directImageLink.startsWith("http")) {
+            cardEl.style.backgroundImage = `url("${directImageLink}")`;
+          }
+        } else if (characterName) {
+          const charFile = this.app.metadataCache.getFirstLinkpathDest(characterName, activeFile.path);
+          if (charFile) {
+            const cache = this.app.metadataCache.getFileCache(charFile);
+            const fm = cache?.frontmatter;
+            if (fm && fm[this.plugin.settings.imagePropertyName]) {
+              const imgPath = this.plugin.resolveImagePath(fm[this.plugin.settings.imagePropertyName], charFile);
+              if (imgPath) cardEl.style.backgroundImage = `url("${imgPath}")`;
+            }
           }
         }
       } else {
