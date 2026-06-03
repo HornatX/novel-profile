@@ -353,6 +353,15 @@ export default class NovelProfilePlugin extends Plugin {
 				container.classList.add('is-novel-profile');
 				this.updateImageState(view, file);
 
+				// 🌟 核心新增：自动展开被折叠的属性区域
+				const metadataContainer = container.querySelector('.metadata-container');
+				if (metadataContainer && metadataContainer.classList.contains('is-collapsed')) {
+					const heading = metadataContainer.querySelector('.metadata-properties-heading');
+					if (heading instanceof HTMLElement) {
+						heading.click(); // 模拟点击原生标题，强制展开
+					}
+				}
+
 			} else {
 				container.classList.remove('is-novel-profile');
 				container.removeAttribute('data-has-image');

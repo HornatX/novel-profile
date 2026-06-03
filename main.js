@@ -276,6 +276,13 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       if (isTargetFolder && hasFrontmatter) {
         container.classList.add("is-novel-profile");
         this.updateImageState(view, file);
+        const metadataContainer = container.querySelector(".metadata-container");
+        if (metadataContainer && metadataContainer.classList.contains("is-collapsed")) {
+          const heading = metadataContainer.querySelector(".metadata-properties-heading");
+          if (heading instanceof HTMLElement) {
+            heading.click();
+          }
+        }
       } else {
         container.classList.remove("is-novel-profile");
         container.removeAttribute("data-has-image");
