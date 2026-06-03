@@ -784,41 +784,41 @@ class NovelTimelineView extends ItemView {
 
 
 			// 🌟 版本选择弹窗 & 自动跳转逻辑
+			// 🌟 版本选择与上下移动菜单
 			if (versionCount > 1) {
 				dotEl.setAttribute('data-version-count', String(versionCount));
+			}
 
-				itemEl.oncontextmenu = (e) => {
-					e.preventDefault();
-					const menu = new Menu();
+			// 把 oncontextmenu 提出来，让所有节点都有右键菜单
+			itemEl.oncontextmenu = (e) => {
+				e.preventDefault();
+				const menu = new Menu();
+				
+				// 1. 如果有多个版本，显示版本切换选项
+				if (versionCount > 1) {
 					menu.addItem((item) => {
 						item
 							.setTitle(`切换分支版本 (${versionCount}个版本)`)
 							.setIcon("git-branch")
 							.onClick(() => {
 								new VersionSelectModal(this.app, this, section, selectedIdx, async (newIdx) => {
-									// 1. 保存设置记录
 									this.plugin.settings.timelineVersions[sectionKey] = newIdx;
 									await this.plugin.saveSettings();
 
-									// 2. 核心功能：跳转并平滑滚动到正文中的对应版本
 									let view = this.app.workspace.getActiveViewOfType(MarkdownView);
-
-									// 🌟 修复：当弹窗开启时，活动视图可能丢失焦点，需要从所有叶子中精准检索目标笔记
 									if (!view || view.file !== this.activeFile) {
 										const leaves = this.app.workspace.getLeavesOfType('markdown');
 										view = leaves.find(l => (l.view as MarkdownView).file === this.activeFile)?.view as MarkdownView;
 									}
 
 									if (view && view.editor) {
-										this.isClickNavigating = true; // 🌟 锁死滚动监听，防止侧边栏来回乱跳
+										this.isClickNavigating = true;
 										this.app.workspace.setActiveLeaf(view.leaf, { focus: true });
-
 										const targetLine = section.versions[newIdx].line;
 										const editor = view.editor;
 										const cm = (editor as any).cm;
 
 										if (cm) {
-											// 使用 CodeMirror 底层平滑滚动，体验更好
 											const offset = editor.posToOffset({ line: targetLine, ch: 0 });
 											cm.dispatch({ selection: { anchor: offset, head: offset } });
 											const blockInfo = cm.lineBlockAt(offset);
@@ -826,25 +826,43 @@ class NovelTimelineView extends ItemView {
 												cm.scrollDOM.scrollTo({ top: Math.max(0, blockInfo.top - 60), behavior: 'smooth' });
 											}
 										} else {
-											// 后备方案
 											editor.setCursor({ line: targetLine, ch: 0 });
 										}
 
-										// 给平滑滚动 800 毫秒的时间，结束后再解锁监听
 										setTimeout(() => {
 											this.syncHighlightToLine(targetLine, true, false);
 											this.isClickNavigating = false;
 										}, 800);
 									}
-
-									// 3. 刷新侧边栏视图 (保持滚动条位置)
 									this.updateView(true);
 								}).open();
 							});
 					});
-					menu.showAtMouseEvent(e);
-				};
-			}
+					
+					menu.addSeparator(); // 加一条分割线
+				}
+
+				// 2. 🌟 新增：上移和下移整个事件的选项
+				menu.addItem((item) => {
+					item
+						.setTitle('上移该事件')
+						.setIcon('arrow-up')
+						.onClick(async () => {
+							await this.moveTimelineSection(section.h2Line, 'up');
+						});
+				});
+
+				menu.addItem((item) => {
+					item
+						.setTitle('下移该事件')
+						.setIcon('arrow-down')
+						.onClick(async () => {
+							await this.moveTimelineSection(section.h2Line, 'down');
+						});
+				});
+
+				menu.showAtMouseEvent(e);
+			};
 
 
 			this.timelineNodes.push({ el: itemEl, line: activeVersion.line });
@@ -897,6 +915,84 @@ class NovelTimelineView extends ItemView {
 		}
 	}
 
+	// 🌟 新增核心功能：安全地上下移动整个二级标题区块
+	async moveTimelineSection(targetH2Line: number, direction: 'up' | 'down') {
+		if (!this.activeFile) return;
+
+		// 1. 读取最新文件内容
+		const content = await this.app.vault.read(this.activeFile);
+		const lines = content.split('\n');
+
+		let prelude: string[] = []; // 用于存放第一个 H2 之前的内容（如 Frontmatter、正文引言等）
+		let sections: { startLine: number, lines: string[] }[] = [];
+		let currentSection: { startLine: number, lines: string[] } | null = null;
+
+		// 2. 将文件按 H2 (## ) 切割成独立的代码块
+		for (let i = 0; i < lines.length; i++) {
+			const line = lines[i];
+			if (line.match(/^##\s+(.*)/)) {
+				currentSection = { startLine: i, lines: [line] };
+				sections.push(currentSection);
+			} else {
+				if (currentSection) {
+					currentSection.lines.push(line);
+				} else {
+					prelude.push(line);
+				}
+			}
+		}
+
+		// 3. 寻找当前点击的 H2 区块索引
+		const index = sections.findIndex(s => s.startLine === targetH2Line);
+		if (index === -1) return;
+		if (direction === 'up' && index === 0) {
+			new Notice("已经是第一个事件，无法上移");
+			return;
+		}
+		if (direction === 'down' && index === sections.length - 1) {
+			new Notice("已经是最后一个事件，无法下移");
+			return;
+		}
+
+		// 4. 交换区块位置
+		const targetIndex = direction === 'up' ? index - 1 : index + 1;
+		const temp = sections[index];
+		sections[index] = sections[targetIndex];
+		sections[targetIndex] = temp;
+
+		// 5. 格式化重组（🌟核心：完美解决空行问题）
+		let newContentLines: string[] = [...prelude];
+		
+		// 清洗头部信息尾部的多余空行
+		while (newContentLines.length > 0 && newContentLines[newContentLines.length - 1].trim() === '') {
+			newContentLines.pop();
+		}
+
+		for (let i = 0; i < sections.length; i++) {
+			// 在每个区块拼接前，强制加入一个空行（如果前面有内容的话）
+			if (newContentLines.length > 0) {
+				newContentLines.push('');
+			}
+
+			let secLines = sections[i].lines;
+			// 清洗当前区块尾部的多余空行
+			while (secLines.length > 0 && secLines[secLines.length - 1].trim() === '') {
+				secLines.pop();
+			}
+			// 将清洗干净的区块推入新内容中
+			newContentLines.push(...secLines);
+		}
+
+		// 确保文件末尾有一个空行（Markdown 标准规范）
+		newContentLines.push('');
+
+		// 6. 安全写入文件
+		const newContent = newContentLines.join('\n');
+		await this.app.vault.modify(this.activeFile, newContent);
+		
+		new Notice(`事件已成功${direction === 'up' ? '上移' : '下移'}！`);
+	}
+
 	syncHighlightToLine(targetLine: number, preventScroll: boolean = false, isInitialLoad: boolean = false) {
 		if (!this.timelineNodes || this.timelineNodes.length === 0) return;
 
@@ -944,6 +1040,9 @@ class VersionSelectModal extends Modal {
 		this.selectedIndex = selectedIndex;
 		this.onSelect = onSelect;
 	}
+
+
+	
 
 	onOpen() {
 		const { contentEl } = this;

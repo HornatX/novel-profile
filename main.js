@@ -647,9 +647,11 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
       const { itemEl, dotEl } = this.createTimelineItemDOM(timelineContainer, activeVersion.extracted, section.h2Title, this.activeFile);
       if (versionCount > 1) {
         dotEl.setAttribute("data-version-count", String(versionCount));
-        itemEl.oncontextmenu = (e) => {
-          e.preventDefault();
-          const menu = new import_obsidian.Menu();
+      }
+      itemEl.oncontextmenu = (e) => {
+        e.preventDefault();
+        const menu = new import_obsidian.Menu();
+        if (versionCount > 1) {
           menu.addItem((item) => {
             item.setTitle(`\u5207\u6362\u5206\u652F\u7248\u672C (${versionCount}\u4E2A\u7248\u672C)`).setIcon("git-branch").onClick(() => {
               new VersionSelectModal(this.app, this, section, selectedIdx, async (newIdx) => {
@@ -685,9 +687,20 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
               }).open();
             });
           });
-          menu.showAtMouseEvent(e);
-        };
-      }
+          menu.addSeparator();
+        }
+        menu.addItem((item) => {
+          item.setTitle("\u4E0A\u79FB\u8BE5\u4E8B\u4EF6").setIcon("arrow-up").onClick(async () => {
+            await this.moveTimelineSection(section.h2Line, "up");
+          });
+        });
+        menu.addItem((item) => {
+          item.setTitle("\u4E0B\u79FB\u8BE5\u4E8B\u4EF6").setIcon("arrow-down").onClick(async () => {
+            await this.moveTimelineSection(section.h2Line, "down");
+          });
+        });
+        menu.showAtMouseEvent(e);
+      };
       this.timelineNodes.push({ el: itemEl, line: activeVersion.line });
       itemEl.onclick = () => {
         let view = this.app.workspace.getActiveViewOfType(import_obsidian.MarkdownView);
@@ -732,6 +745,60 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
       const view = leaves.find((l) => l.view.file === this.activeFile)?.view;
       if (view) this.syncHighlightToLine(this.getVisibleLine(view), maintainScroll, false);
     }
+  }
+  // 🌟 新增核心功能：安全地上下移动整个二级标题区块
+  async moveTimelineSection(targetH2Line, direction) {
+    if (!this.activeFile) return;
+    const content = await this.app.vault.read(this.activeFile);
+    const lines = content.split("\n");
+    let prelude = [];
+    let sections = [];
+    let currentSection = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.match(/^##\s+(.*)/)) {
+        currentSection = { startLine: i, lines: [line] };
+        sections.push(currentSection);
+      } else {
+        if (currentSection) {
+          currentSection.lines.push(line);
+        } else {
+          prelude.push(line);
+        }
+      }
+    }
+    const index = sections.findIndex((s) => s.startLine === targetH2Line);
+    if (index === -1) return;
+    if (direction === "up" && index === 0) {
+      new import_obsidian.Notice("\u5DF2\u7ECF\u662F\u7B2C\u4E00\u4E2A\u4E8B\u4EF6\uFF0C\u65E0\u6CD5\u4E0A\u79FB");
+      return;
+    }
+    if (direction === "down" && index === sections.length - 1) {
+      new import_obsidian.Notice("\u5DF2\u7ECF\u662F\u6700\u540E\u4E00\u4E2A\u4E8B\u4EF6\uFF0C\u65E0\u6CD5\u4E0B\u79FB");
+      return;
+    }
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    const temp = sections[index];
+    sections[index] = sections[targetIndex];
+    sections[targetIndex] = temp;
+    let newContentLines = [...prelude];
+    while (newContentLines.length > 0 && newContentLines[newContentLines.length - 1].trim() === "") {
+      newContentLines.pop();
+    }
+    for (let i = 0; i < sections.length; i++) {
+      if (newContentLines.length > 0) {
+        newContentLines.push("");
+      }
+      let secLines = sections[i].lines;
+      while (secLines.length > 0 && secLines[secLines.length - 1].trim() === "") {
+        secLines.pop();
+      }
+      newContentLines.push(...secLines);
+    }
+    newContentLines.push("");
+    const newContent = newContentLines.join("\n");
+    await this.app.vault.modify(this.activeFile, newContent);
+    new import_obsidian.Notice(`\u4E8B\u4EF6\u5DF2\u6210\u529F${direction === "up" ? "\u4E0A\u79FB" : "\u4E0B\u79FB"}\uFF01`);
   }
   syncHighlightToLine(targetLine, preventScroll = false, isInitialLoad = false) {
     if (!this.timelineNodes || this.timelineNodes.length === 0) return;
