@@ -87,7 +87,7 @@ export default class NovelProfilePlugin extends Plugin {
 
 		this.registerView(TIMELINE_VIEW_TYPE, (leaf) => new NovelTimelineView(leaf, this));
 
-		this.addRibbonIcon('clock', '打开小说事件时间线', () => {
+		this.addRibbonIcon('list-tree', '打开小说事件时间线', () => {
 			this.activateTimelineView();
 		});
 
@@ -124,7 +124,7 @@ export default class NovelProfilePlugin extends Plugin {
 					menu.addItem((item) => {
 						item
 							.setTitle('添加时间线模板')
-							.setIcon('clock')
+							.setIcon('list-tree')
 							.onClick(async () => {
 								if (!this.settings.timelineTemplateFile) {
 									new Notice('❌ 请先在插件设置中指定时间线模板文件');
@@ -464,7 +464,7 @@ class NovelTimelineView extends ItemView {
 
 	getViewType() { return TIMELINE_VIEW_TYPE; }
 	getDisplayText() { return "事件线"; }
-	getIcon() { return "clock"; }
+	getIcon() { return "list-tree"; }
 
 	getVisibleLine(view: MarkdownView): number {
 		try {

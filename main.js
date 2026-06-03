@@ -54,7 +54,7 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     this.isEditLocked = this.settings.defaultLocked;
     this.updateLockState();
     this.registerView(TIMELINE_VIEW_TYPE, (leaf) => new NovelTimelineView(leaf, this));
-    this.addRibbonIcon("clock", "\u6253\u5F00\u5C0F\u8BF4\u4E8B\u4EF6\u65F6\u95F4\u7EBF", () => {
+    this.addRibbonIcon("list-tree", "\u6253\u5F00\u5C0F\u8BF4\u4E8B\u4EF6\u65F6\u95F4\u7EBF", () => {
       this.activateTimelineView();
     });
     this.addCommand({
@@ -84,7 +84,7 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       this.app.workspace.on("editor-menu", (menu, editor, view) => {
         if (this.settings.enableTimelineContextMenu) {
           menu.addItem((item) => {
-            item.setTitle("\u6DFB\u52A0\u65F6\u95F4\u7EBF\u6A21\u677F").setIcon("clock").onClick(async () => {
+            item.setTitle("\u6DFB\u52A0\u65F6\u95F4\u7EBF\u6A21\u677F").setIcon("list-tree").onClick(async () => {
               if (!this.settings.timelineTemplateFile) {
                 new import_obsidian.Notice("\u274C \u8BF7\u5148\u5728\u63D2\u4EF6\u8BBE\u7F6E\u4E2D\u6307\u5B9A\u65F6\u95F4\u7EBF\u6A21\u677F\u6587\u4EF6");
                 return;
@@ -370,7 +370,7 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
     return "\u4E8B\u4EF6\u7EBF";
   }
   getIcon() {
-    return "clock";
+    return "list-tree";
   }
   getVisibleLine(view) {
     try {
