@@ -1,13 +1,15 @@
 /* ======================================================= */
 /* 1. 正文内：小说角色卡片核心布局                         */
 /* ======================================================= */
-body .is-novel-profile .metadata-properties-heading { display: none; }
+body .is-novel-profile .metadata-properties-heading {
+    display: none;
+}
 
 body .is-novel-profile .metadata-container:not(:empty) {
     display: flex !important;
     flex-direction: row;
     align-items: stretch;
-    gap: 30px; 
+    gap: 30px;
     background-color: var(--background-secondary);
     padding: 20px;
     border-radius: 12px;
@@ -40,20 +42,32 @@ body .is-novel-profile .metadata-content {
     justify-content: center;
 }
 
-body .is-novel-profile .metadata-property-icon { opacity: 0.4; }
-body .is-novel-profile .metadata-container.is-collapsed .metadata-content { display: flex; }
+body .is-novel-profile .metadata-property-icon {
+    opacity: 0.4;
+}
+
+body .is-novel-profile .metadata-container.is-collapsed .metadata-content {
+    display: flex;
+}
 
 /* 锁定编辑状态的样式 */
-body.np-edit-locked .is-novel-profile .metadata-properties { pointer-events: none !important; }
+body.np-edit-locked .is-novel-profile .metadata-properties {
+    pointer-events: none !important;
+}
+
 body.np-edit-locked .is-novel-profile a.internal-link,
 body.np-edit-locked .is-novel-profile a.external-link,
 body.np-edit-locked .is-novel-profile .metadata-link-inner {
     pointer-events: auto !important;
     cursor: pointer !important;
 }
+
 body.np-edit-locked .is-novel-profile .multi-select-pill-remove-button,
 body.np-edit-locked .is-novel-profile .metadata-add-button,
-body.np-edit-locked .is-novel-profile .metadata-property-value svg { display: none !important; }
+body.np-edit-locked .is-novel-profile .metadata-property-value svg {
+    display: none !important;
+}
+
 body.np-edit-locked .is-novel-profile .metadata-property-value input,
 body.np-edit-locked .is-novel-profile .metadata-property-value div[contenteditable="true"],
 body.np-edit-locked .is-novel-profile .metadata-property-value .metadata-input-text {
@@ -68,7 +82,7 @@ body.np-edit-locked .is-novel-profile .metadata-property-value .metadata-input-t
 /* 2. 独家打造：专属自定义悬浮名片 (终极比例对齐版)         */
 /* ======================================================= */
 body.np-showing-custom-popover .hover-popover {
-    display: none !important; 
+    display: none !important;
 }
 
 .np-custom-popover {
@@ -83,9 +97,9 @@ body.np-showing-custom-popover .hover-popover {
     flex-direction: row;
     align-items: stretch;
     gap: 30px;
-    width: max-content; 
+    width: max-content;
     max-width: 800px;
-    pointer-events: none; 
+    pointer-events: none;
 }
 
 .np-custom-popover-img {
@@ -102,7 +116,7 @@ body.np-showing-custom-popover .hover-popover {
     display: flex;
     flex-direction: column;
     justify-content: center;
-    gap: 18px; 
+    gap: 18px;
 }
 
 .np-custom-prop {
@@ -110,7 +124,7 @@ body.np-showing-custom-popover .hover-popover {
     flex-direction: row;
     align-items: center;
     gap: 15px;
-    font-size: 1.1em; 
+    font-size: 1.1em;
 }
 
 .np-custom-key {
@@ -130,11 +144,11 @@ body.np-showing-custom-popover .hover-popover {
 /* ======================================================= */
 .np-custom-popover.is-minimal {
     flex-direction: column;
-    justify-content: flex-end; 
+    justify-content: flex-end;
     padding: 0;
     gap: 0;
-    width: calc(var(--np-image-width, 150px) * 1.4); 
-    min-height: calc(var(--np-image-width, 150px) * 1.9); 
+    width: calc(var(--np-image-width, 150px) * 1.4);
+    min-height: calc(var(--np-image-width, 150px) * 1.9);
     overflow: hidden;
 }
 
@@ -142,7 +156,7 @@ body.np-showing-custom-popover .hover-popover {
     position: absolute;
     top: 0;
     left: 0;
-    width: 100% !important; 
+    width: 100% !important;
     height: 100%;
     min-height: unset;
     border-radius: 0;
@@ -158,7 +172,7 @@ body.np-showing-custom-popover .hover-popover {
     bottom: 0;
     left: 0;
     width: 100%;
-    height: 65%; 
+    height: 65%;
     background: linear-gradient(to top, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0.4) 20%, rgba(0, 0, 0, 0) 100%);
     z-index: 2;
     pointer-events: none;
@@ -191,7 +205,8 @@ body.np-showing-custom-popover .hover-popover {
 /* 4. 侧边栏事件时间线 (呼吸卡片、发光竖线、精准对齐版)     */
 /* ======================================================= */
 .np-timeline-container {
-    padding: 10px 10px 40px 10px; /* 两侧留白，让卡片不贴边 */
+    padding: 10px 10px 40px 10px;
+    /* 两侧留白，让卡片不贴边 */
     display: flex;
     flex-direction: column;
     overflow-y: auto;
@@ -212,9 +227,12 @@ body.np-showing-custom-popover .hover-popover {
     align-items: stretch;
     position: relative;
     cursor: pointer;
-    border-radius: 12px; /* 圆角更大 */
-    padding: 12px 10px; /* 内部留白 */
-    margin-bottom: 10px; /* 🌟 关键：项目之间的缝隙，再也不会挤在一起了 */
+    border-radius: 12px;
+    /* 圆角更大 */
+    padding: 12px 10px;
+    /* 内部留白 */
+    margin-bottom: 10px;
+    /* 🌟 关键：项目之间的缝隙，再也不会挤在一起了 */
     background-color: transparent;
     transition: all 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
@@ -222,7 +240,8 @@ body.np-showing-custom-popover .hover-popover {
 .np-timeline-item:hover {
     background-color: var(--background-modifier-hover);
     border-color: var(--background-modifier-border-hover);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); /* 轻微浮动感 */
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    /* 轻微浮动感 */
 }
 
 
@@ -233,7 +252,8 @@ body.np-showing-custom-popover .hover-popover {
     display: flex;
     flex-direction: column;
     align-items: center;
-    padding-top: 2px; /* 微调与标题对齐 */
+    padding-top: 2px;
+    /* 微调与标题对齐 */
 }
 
 .np-timeline-card {
@@ -243,7 +263,7 @@ body.np-showing-custom-popover .hover-popover {
     border-radius: 8px;
     overflow: hidden;
     position: relative;
-    box-shadow: 1px 2px 2px rgba(0,0,0,0.5); 
+    box-shadow: 1px 2px 2px rgba(0, 0, 0, 0.5);
     background-size: cover;
     background-position: center;
     display: flex;
@@ -253,8 +273,11 @@ body.np-showing-custom-popover .hover-popover {
 .np-timeline-card::after {
     content: "";
     position: absolute;
-    bottom: 0; left: 0; right: 0; height: 60%;
-    background: linear-gradient(to top, rgba(0,0,0,0.3), transparent);
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 60%;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.3), transparent);
     pointer-events: none;
 }
 
@@ -267,7 +290,7 @@ body.np-showing-custom-popover .hover-popover {
     font-size: 0.7em;
     font-weight: 600;
     padding: 6px 2px;
-    text-shadow: 0px 1px 3px rgba(0,0,0,0.9);
+    text-shadow: 0px 1px 3px rgba(0, 0, 0, 0.9);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -283,7 +306,7 @@ body.np-showing-custom-popover .hover-popover {
 
 /* 🌟 分割线与圆点容器 */
 .np-timeline-divider {
-    width: 35px; 
+    width: 35px;
     flex-shrink: 0;
     position: relative;
 }
@@ -292,53 +315,61 @@ body.np-showing-custom-popover .hover-popover {
 .np-timeline-line {
     position: absolute;
     top: 0;
-    bottom: -40px; /* 向下延伸穿过缝隙 */
+    bottom: -40px;
+    /* 向下延伸穿过缝隙 */
     left: 50%;
     transform: translateX(-50%);
     width: 3px;
-    background-color: var(--interactive-accent); /* 提亮竖线 */
-    opacity: 0.8; /* 默认半透明微光 */
+    background-color: var(--interactive-accent);
+    /* 提亮竖线 */
+    opacity: 0.8;
+    /* 默认半透明微光 */
     box-shadow: 0 0 4px rgba(var(--interactive-accent-rgb), 0.2);
     transition: opacity 0.3s ease;
 }
 
-.np-timeline-item:last-child .np-timeline-line { 
+.np-timeline-item:last-child .np-timeline-line {
     background: linear-gradient(to bottom, var(--interactive-accent) 60%, transparent 100%);
     bottom: 0;
 }
 
 .np-timeline-item.is-active .np-timeline-line {
-    opacity: 0.85; /* 选中时竖线彻底变亮 */
+    opacity: 0.85;
+    /* 选中时竖线彻底变亮 */
 }
 
 /* 🌟 主标题圆点：精准对齐文字中心 */
 .np-timeline-dot {
     position: absolute;
-    top: 6px; /* 🌟 核心修改：基于标题 font-size 和 line-height 计算的完美中心点 */
+    top: 6px;
+    /* 🌟 核心修改：基于标题 font-size 和 line-height 计算的完美中心点 */
     left: 50%;
     transform: translateX(-50%);
-    width: 12px; 
+    width: 12px;
     height: 12px;
     border-radius: 50%;
-    background-color: var(--text-muted); 
-    border: 2px solid var(--background-primary); /* 镂空描边设计 */
+    background-color: var(--text-muted);
+    border: 2px solid var(--background-primary);
+    /* 镂空描边设计 */
     z-index: 2;
     transition: all 0.3s ease;
 }
 
 .np-timeline-item.is-active .np-timeline-dot {
     background-color: var(--interactive-accent);
-    transform: translateX(-50%) scale(1.2); /* 选中时圆点放大 */
+    transform: translateX(-50%) scale(1.2);
+    /* 选中时圆点放大 */
     box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.2);
 }
 
 /* 右侧文本区 */
 .np-timeline-right {
     flex-grow: 1;
-    padding-left: 10px;    
+    padding-left: 10px;
     padding-right: 5px;
     position: relative;
-    padding-top: 0; /* 归零，由 flex 顶端对齐 */
+    padding-top: 0;
+    /* 归零，由 flex 顶端对齐 */
 }
 
 .np-timeline-title {
@@ -347,7 +378,7 @@ body.np-showing-custom-popover .hover-popover {
     color: var(--text-normal);
     margin-bottom: 8px;
     line-height: 1.3;
-    margin-top: 0; 
+    margin-top: 0;
 }
 
 .np-timeline-desc {
@@ -363,19 +394,23 @@ body.np-showing-custom-popover .hover-popover {
 }
 
 /* 起因和结果的父容器 */
-.np-timeline-cause, .np-timeline-result {
+.np-timeline-cause,
+.np-timeline-result {
     position: relative;
     margin-bottom: 6px;
 }
 
 /* 🌟 子节点微小圆点：贴合提亮的竖线 */
-.np-timeline-cause::before, .np-timeline-result::before {
+.np-timeline-cause::before,
+.np-timeline-result::before {
     content: "";
     position: absolute;
-    left: -27.5px; /* 精确计算：Right padding(10) + Divider半宽(17.5) = 27.5 */
+    left: -27.5px;
+    /* 精确计算：Right padding(10) + Divider半宽(17.5) = 27.5 */
     transform: translateX(-50%);
-    top: 7px; /* 垂直对齐子节点第一行文字 */
-    width: 6px; 
+    top: 7px;
+    /* 垂直对齐子节点第一行文字 */
+    width: 6px;
     height: 6px;
     border-radius: 50%;
     background-color: var(--background-modifier-border);
@@ -385,4 +420,75 @@ body.np-showing-custom-popover .hover-popover {
 
 .workspace-leaf-content .view-content {
     padding: var(--size-4-3) var(--size-4-3) 0px;
+}
+
+/* ======================================================= */
+/* 🌟 新增：时间线多版本（分支）标记圆点样式                */
+/* ======================================================= */
+
+/* 当存在多个版本时，圆点稍微放大一点点以容纳数字 */
+.np-timeline-dot[data-version-count] {
+    width: 12px;
+    height: 12px;
+    top: 5px;
+    /* 调整位置保持居中对齐 */
+}
+
+/* 伪元素插入数字 */
+.np-timeline-dot[data-version-count]::after {
+    content: attr(data-version-count);
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #ffffff;
+    /* 默认数字颜色，不抢眼 */
+    font-size: 9px;
+    font-weight: 800;
+    line-height: 1;
+}
+
+/* 当处于选中/激活状态时，倒排文字颜色确保清晰度 */
+.np-timeline-item.is-active .np-timeline-dot[data-version-count]::after {
+    color: var(--background-primary);
+}
+
+
+/* ======================================================= */
+/* 🌟 新增：版本选择弹窗 (Modal) 的样式微调                 */
+/* ======================================================= */
+.np-modal-title {
+    margin-top: 0;
+    margin-bottom: 5px;
+    color: var(--text-normal);
+}
+
+.np-modal-subtitle {
+    margin-top: 0;
+    margin-bottom: 20px;
+    color: var(--text-muted);
+    font-size: 0.9em;
+}
+
+/* 在弹窗中复用时间线卡片，限制高度产生滚动条 */
+.np-version-modal-container {
+    max-height: 60vh;
+    padding: 10px 5px !important;
+}
+
+/* 弹窗里的卡片 Hover 效果明显一点 */
+.np-version-modal-container .np-timeline-item {
+    border: 1px solid transparent;
+}
+
+.np-version-modal-container .np-timeline-item:hover {
+    border-color: var(--interactive-accent);
+}
+
+
+
+.np-timeline-dot {
+
+    background-color: #a3a3a3;
+
 }
