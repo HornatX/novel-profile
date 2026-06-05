@@ -1,5 +1,12 @@
 Novel Profile (小说角色卡片)
 
+如果您觉得这款插件对您有帮助，欢迎在小红书（RED）上关注我，我会在那里分享更多技巧、教程和更新。
+
+If you find this plugin helpful, feel free to follow me on Xiaohongshu (RED) where I share more tips, tutorials, and updates.
+
+https://www.xiaohongshu.com/user/profile/6353523d000000001802f8ae?xsec_token=YB4vLkLfzOijtg8c1Vh12ZASaI1ByqPPYi82ZzKbG72qE=&xsec_source=app_share&xhsshare=QQ&appuid=6353523d000000001802f8ae&apptime=1780631605&share_id=3846902afcd94e2ab78467cd7b9b5669
+
+
 💡 温馨提示 / Notice:
 本插件专注于将 Obsidian 的原生属性区改造为高颜值的“小说角色/设定卡片”。零数据侵入，安全纯净，专为沉浸式写作与世界观构建打造。 QQ交流群:1094620986
 
