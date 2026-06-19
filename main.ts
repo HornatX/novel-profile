@@ -1,5 +1,30 @@
 import { App, Plugin, PluginSettingTab, Setting, TFile, MarkdownView, Notice, debounce, ItemView, WorkspaceLeaf, FuzzySuggestModal, Menu, Modal } from 'obsidian';
 
+// ============================================================================
+// 辅助函数：安全的 Monkey Patch (劫持) 机制，完美避开 TS 类型警告
+// ============================================================================
+type AnyFunction = (...args: any[]) => any;
+function around<T extends Record<string, any>>(
+    obj: T,
+    factories: { [K in keyof T]?: (next: AnyFunction) => AnyFunction }
+): () => void {
+    const removers = Object.keys(factories).map(key => {
+        const k = key as keyof T;
+        const original = obj[k] as AnyFunction;
+        const factory = factories[k];
+        if (!factory) return () => { };
+
+        const wrapped = factory(original) as AnyFunction & { container?: AnyFunction };
+        wrapped.container = original;
+
+        obj[k] = wrapped as T[keyof T];
+        return () => {
+            if (obj[k] === wrapped) obj[k] = original as T[keyof T];
+        };
+    });
+    return () => removers.forEach(r => r());
+}
+
 // -----------------------------------------------------
 // 1. 设置接口与默认值
 // -----------------------------------------------------
@@ -15,12 +40,9 @@ interface NovelProfileSettings {
 	minimalPopover: boolean;
 	popoverScale: number;
 
-	// 时间线专属设置
 	enableTimelineContextMenu: boolean;
 	timelineTemplateFile: string;
 	timelineTextScale: number;
-
-	// 🌟 新增：记住每个事件选择的版本
 	timelineVersions: Record<string, number>;
 }
 
@@ -39,12 +61,11 @@ const DEFAULT_SETTINGS: NovelProfileSettings = {
 	enableTimelineContextMenu: false,
 	timelineTemplateFile: '',
 	timelineTextScale: 1.0,
-	timelineVersions: {} // 默认空记录
+	timelineVersions: {}
 }
 
 const TIMELINE_VIEW_TYPE = "novel-timeline-view";
 
-// 🌟 新增：提取时间线数据的统一接口
 interface ExtractedData {
 	time: string;
 	characterName: string;
@@ -80,16 +101,12 @@ export default class NovelProfilePlugin extends Plugin {
 
 	debouncedProcessLeaves = debounce(this.processAllLeaves.bind(this), 250, true);
 
-	// 🌟 1. 新增：保存 Obsidian 原版加载函数的引用
-	originalLoadFile: Function | null = null;
-
 	async onload() {
 		await this.loadSettings();
 		this.isEditLocked = this.settings.defaultLocked;
 		this.updateLockState();
 
-		// 🌟 2. 新增：在插件刚启动时，立刻修补原生 MarkdownView 的加载逻辑
-		this.patchMarkdownView();
+		this.patchObsidianViews();
 
 		this.registerView(TIMELINE_VIEW_TYPE, (leaf) => new NovelTimelineView(leaf, this));
 
@@ -123,7 +140,6 @@ export default class NovelProfilePlugin extends Plugin {
 			}
 		});
 
-		// 注册正文右键菜单 (用于插入时间线模板)
 		this.registerEvent(
 			this.app.workspace.on('editor-menu', (menu, editor, view) => {
 				if (this.settings.enableTimelineContextMenu) {
@@ -313,9 +329,6 @@ export default class NovelProfilePlugin extends Plugin {
 	}
 
 	onunload() {
-		// 🌟 3. 新增：插件卸载时，一定要还原原本的方法，避免影响其他插件
-		this.unpatchMarkdownView();
-
 		this.app.workspace.detachLeavesOfType(TIMELINE_VIEW_TYPE);
 
 		if (this.hoverTimeout) window.clearTimeout(this.hoverTimeout);
@@ -334,57 +347,52 @@ export default class NovelProfilePlugin extends Plugin {
 		});
 	}
 
-	// =====================================================
-	// 🌟 4. 新增方法：拦截原生加载，提前注入样式 (彻底消灭闪烁)
-	// =====================================================
-	patchMarkdownView() {
+	patchObsidianViews() {
 		const plugin = this;
-		this.originalLoadFile = MarkdownView.prototype.loadFile;
-		
-		MarkdownView.prototype.loadFile = async function (file: TFile) {
-			// 【核心修复】在 Obsidian 真正去异步构建和渲染 DOM 之前，立刻同步打上插件的 Class。
-			// 这样当原版的属性面板插入到页面时，直接就会掉进我们设定好的 Flex 横排容器里，完全没有闪烁的空间！
+		const applyProfileClassEarly = function(view: MarkdownView, file: TFile) {
 			try {
 				if (plugin.checkIsTargetFile(file)) {
-					this.containerEl.classList.add('is-novel-profile');
-					// 尽早同步尝试读取缓存获取图片
+					view.containerEl.classList.add('is-novel-profile');
 					const cache = plugin.app.metadataCache.getFileCache(file);
 					if (cache && cache.frontmatter) {
-						plugin.updateImageState(this as unknown as MarkdownView, file);
+						plugin.updateImageState(view, file);
 					}
 				} else {
-					this.containerEl.classList.remove('is-novel-profile');
-					this.containerEl.removeAttribute('data-has-image');
-					this.containerEl.style.removeProperty('--np-image-url');
+					view.containerEl.classList.remove('is-novel-profile');
+					view.containerEl.removeAttribute('data-has-image');
+					view.containerEl.style.removeProperty('--np-image-url');
 				}
-			} catch (e) {
-				console.error("Novel Profile Plugin: 预加载样式拦截失败", e);
-			}
-
-			// 等待原版的加载流程（这里面包含属性面板真实的 DOM 生成）
-			let result;
-			if (plugin.originalLoadFile) {
-				result = await plugin.originalLoadFile.apply(this, arguments);
-			}
-
-			// 加载完毕后，再走一遍全量的兜底处理（比如执行属性面板的展开折叠模拟点击）
-			try {
-				plugin.processAllLeaves();
-			} catch (e) {
-				console.error("Novel Profile Plugin: 加载后处理失败", e);
-			}
-
-			return result;
+			} catch (e) {}
 		};
-	}
 
-	unpatchMarkdownView() {
-		if (this.originalLoadFile) {
-			MarkdownView.prototype.loadFile = this.originalLoadFile as any;
-			this.originalLoadFile = null;
-		}
+		const unpatchLeaf = around(WorkspaceLeaf.prototype as any, {
+			setViewState(next: AnyFunction) {
+				return async function (this: WorkspaceLeaf, state: any, eState?: any) {
+					if (state.type === 'markdown' && state.state && state.state.file) {
+						const file = plugin.app.vault.getAbstractFileByPath(state.state.file);
+						if (file instanceof TFile && this.view instanceof MarkdownView) {
+							applyProfileClassEarly(this.view, file);
+						}
+					}
+					return next.call(this, state, eState);
+				};
+			}
+		});
+
+		const unpatchMarkdown = around(MarkdownView.prototype as any, {
+			onLoadFile(next: AnyFunction) {
+				return async function (this: MarkdownView, file: TFile) {
+					applyProfileClassEarly(this, file);
+					const result = await next.call(this, file);
+					plugin.processAllLeaves();
+					return result;
+				};
+			}
+		});
+
+		this.register(unpatchLeaf);
+		this.register(unpatchMarkdown);
 	}
-	// =====================================================
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
@@ -414,14 +422,8 @@ export default class NovelProfilePlugin extends Plugin {
 				container.classList.add('is-novel-profile');
 				this.updateImageState(view, file);
 
-				// 🌟 核心新增：自动展开被折叠的属性区域
-				const metadataContainer = container.querySelector('.metadata-container');
-				if (metadataContainer && metadataContainer.classList.contains('is-collapsed')) {
-					const heading = metadataContainer.querySelector('.metadata-properties-heading');
-					if (heading instanceof HTMLElement) {
-						heading.click(); // 模拟点击原生标题，强制展开
-					}
-				}
+				// 🔥 彻底删除了这里原本“强制点开折叠面板”的流氓代码！
+				// 用户折叠了就是折叠了，绝不再自作主张把它弹出来！
 
 			} else {
 				container.classList.remove('is-novel-profile');
@@ -452,6 +454,36 @@ export default class NovelProfilePlugin extends Plugin {
 
 	updateDynamicStyles() {
 		let css = `:root { --np-image-width: ${this.settings.imageWidth}px; }`;
+
+		css += `
+			/* 1. 禁用原生的属性折叠/展开动画，拒绝抽搐 */
+			body .is-novel-profile .metadata-container *,
+			body .is-novel-profile .metadata-property {
+				transition: none !important;
+				animation: none !important;
+			}
+
+			/* 2. 🌟 修复永久隐身Bug：正确控制初始透明度，0.4秒后平滑显现 */
+			body .is-novel-profile .metadata-container:not(.is-collapsed) {
+				/* 关键修复：去掉基础类的 opacity: 0，完全交由 animation 接管 */
+				animation: np-stealth-mode 0.4s ease-out forwards !important;
+			}
+			@keyframes np-stealth-mode {
+				0% { opacity: 0; }
+				75% { opacity: 0; } /* 前 0.3 秒绝对隐身，此时 SimplyScroll 正在狂奔 */
+				100% { opacity: 1; }
+			}
+
+			/* 3. 焊死高度：即便隐身也要在物理上占位，保证 SimplyScroll 滚轮计算绝对精准 */
+			body .is-novel-profile[data-has-image="true"] .metadata-container:not(.is-collapsed)::before {
+				min-height: calc(var(--np-image-width, 150px) * 1.35) !important;
+			}
+
+			/* 4. 🌟 恢复标题栏可见：把原生的小箭头还给你，方便你随时手动折叠它！ */
+			body .is-novel-profile .metadata-properties-heading {
+				display: flex !important;
+			}
+		`;
 
 		if (this.settings.hidePropertyNames) {
 			css += `
@@ -634,7 +666,6 @@ class NovelTimelineView extends ItemView {
 		if (charMatch) {
 			const rawCharText = charMatch[1];
 
-			// 🌟 修复 TS 报错 1：使用全兼容的 RegExp.exec 循环替代 matchAll
 			const linkMatches = [];
 			const linkRegex = /!*\[\[(.*?)\]\]/g;
 			let match;
@@ -843,19 +874,14 @@ class NovelTimelineView extends ItemView {
 
 			const { itemEl, dotEl } = this.createTimelineItemDOM(timelineContainer, activeVersion.extracted!, section.h2Title, this.activeFile);
 
-
-			// 🌟 版本选择弹窗 & 自动跳转逻辑
-			// 🌟 版本选择与上下移动菜单
 			if (versionCount > 1) {
 				dotEl.setAttribute('data-version-count', String(versionCount));
 			}
 
-			// 把 oncontextmenu 提出来，让所有节点都有右键菜单
 			itemEl.oncontextmenu = (e) => {
 				e.preventDefault();
 				const menu = new Menu();
 				
-				// 1. 如果有多个版本，显示版本切换选项
 				if (versionCount > 1) {
 					menu.addItem((item) => {
 						item
@@ -900,10 +926,9 @@ class NovelTimelineView extends ItemView {
 							});
 					});
 					
-					menu.addSeparator(); // 加一条分割线
+					menu.addSeparator();
 				}
 
-				// 2. 🌟 新增：上移和下移整个事件的选项
 				menu.addItem((item) => {
 					item
 						.setTitle('上移该事件')
@@ -924,7 +949,6 @@ class NovelTimelineView extends ItemView {
 
 				menu.showAtMouseEvent(e);
 			};
-
 
 			this.timelineNodes.push({ el: itemEl, line: activeVersion.line });
 
@@ -976,19 +1000,16 @@ class NovelTimelineView extends ItemView {
 		}
 	}
 
-	// 🌟 新增核心功能：安全地上下移动整个二级标题区块
 	async moveTimelineSection(targetH2Line: number, direction: 'up' | 'down') {
 		if (!this.activeFile) return;
 
-		// 1. 读取最新文件内容
 		const content = await this.app.vault.read(this.activeFile);
 		const lines = content.split('\n');
 
-		let prelude: string[] = []; // 用于存放第一个 H2 之前的内容（如 Frontmatter、正文引言等）
+		let prelude: string[] = [];
 		let sections: { startLine: number, lines: string[] }[] = [];
 		let currentSection: { startLine: number, lines: string[] } | null = null;
 
-		// 2. 将文件按 H2 (## ) 切割成独立的代码块
 		for (let i = 0; i < lines.length; i++) {
 			const line = lines[i];
 			if (line.match(/^##\s+(.*)/)) {
@@ -1003,7 +1024,6 @@ class NovelTimelineView extends ItemView {
 			}
 		}
 
-		// 3. 寻找当前点击的 H2 区块索引
 		const index = sections.findIndex(s => s.startLine === targetH2Line);
 		if (index === -1) return;
 		if (direction === 'up' && index === 0) {
@@ -1015,39 +1035,31 @@ class NovelTimelineView extends ItemView {
 			return;
 		}
 
-		// 4. 交换区块位置
 		const targetIndex = direction === 'up' ? index - 1 : index + 1;
 		const temp = sections[index];
 		sections[index] = sections[targetIndex];
 		sections[targetIndex] = temp;
 
-		// 5. 格式化重组（🌟核心：完美解决空行问题）
 		let newContentLines: string[] = [...prelude];
 		
-		// 清洗头部信息尾部的多余空行
 		while (newContentLines.length > 0 && newContentLines[newContentLines.length - 1].trim() === '') {
 			newContentLines.pop();
 		}
 
 		for (let i = 0; i < sections.length; i++) {
-			// 在每个区块拼接前，强制加入一个空行（如果前面有内容的话）
 			if (newContentLines.length > 0) {
 				newContentLines.push('');
 			}
 
 			let secLines = sections[i].lines;
-			// 清洗当前区块尾部的多余空行
 			while (secLines.length > 0 && secLines[secLines.length - 1].trim() === '') {
 				secLines.pop();
 			}
-			// 将清洗干净的区块推入新内容中
 			newContentLines.push(...secLines);
 		}
 
-		// 确保文件末尾有一个空行（Markdown 标准规范）
 		newContentLines.push('');
 
-		// 6. 安全写入文件
 		const newContent = newContentLines.join('\n');
 		await this.app.vault.modify(this.activeFile, newContent);
 		
@@ -1102,9 +1114,6 @@ class VersionSelectModal extends Modal {
 		this.onSelect = onSelect;
 	}
 
-
-	
-
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
@@ -1112,15 +1121,13 @@ class VersionSelectModal extends Modal {
 		contentEl.createEl('h2', { text: '切换版本分支', cls: 'np-modal-title' });
 		contentEl.createEl('p', { text: `当前事件：${this.section.h2Title}`, cls: 'np-modal-subtitle' });
 
-		// 完美复用我们侧边栏写好的 CSS 容器
 		const container = contentEl.createDiv({ cls: 'np-timeline-container np-version-modal-container' });
 
 		this.section.versions.forEach((version, index) => {
-			// 在弹窗里，我们渲染的是三级标题 (version.title)
 			const { itemEl } = this.timelineView.createTimelineItemDOM(container, version.extracted!, version.title, this.timelineView.activeFile!);
 
 			if (index === this.selectedIndex) {
-				itemEl.classList.add('is-active'); // 高亮当前选中的版本
+				itemEl.classList.add('is-active');
 			}
 
 			itemEl.onclick = () => {
@@ -1260,9 +1267,6 @@ class NovelProfileSettingTab extends PluginSettingTab {
 					await this.plugin.saveSettings();
 				}));
 
-		// -----------------------------------------------------
-		// 时间线专属设置区块
-		// -----------------------------------------------------
 		containerEl.createEl('h2', { text: '时间线设置' });
 
 		new Setting(containerEl)
@@ -1290,11 +1294,10 @@ class NovelProfileSettingTab extends PluginSettingTab {
 			.addButton(button => button
 				.setButtonText("搜索并选择文件")
 				.onClick(() => {
-					// 唤起原生搜索框
 					new FileSuggestModal(this.app, async (file: TFile) => {
 						this.plugin.settings.timelineTemplateFile = file.path;
 						await this.plugin.saveSettings();
-						this.display(); // 刷新设置界面展示新路径
+						this.display();
 					}).open();
 				}));
 

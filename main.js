@@ -23,6 +23,22 @@ __export(main_exports, {
 });
 module.exports = __toCommonJS(main_exports);
 var import_obsidian = require("obsidian");
+function around(obj, factories) {
+  const removers = Object.keys(factories).map((key) => {
+    const k = key;
+    const original = obj[k];
+    const factory = factories[k];
+    if (!factory) return () => {
+    };
+    const wrapped = factory(original);
+    wrapped.container = original;
+    obj[k] = wrapped;
+    return () => {
+      if (obj[k] === wrapped) obj[k] = original;
+    };
+  });
+  return () => removers.forEach((r) => r());
+}
 var DEFAULT_SETTINGS = {
   targetFolders: "\u89D2\u8272,\u8BBE\u5B9A",
   imagePropertyName: "\u56FE\u7247",
@@ -38,7 +54,6 @@ var DEFAULT_SETTINGS = {
   timelineTemplateFile: "",
   timelineTextScale: 1,
   timelineVersions: {}
-  // 默认空记录
 };
 var TIMELINE_VIEW_TYPE = "novel-timeline-view";
 var NovelProfilePlugin = class extends import_obsidian.Plugin {
@@ -48,14 +63,12 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     this.hoverTimeout = null;
     this.activeCustomPopover = null;
     this.debouncedProcessLeaves = (0, import_obsidian.debounce)(this.processAllLeaves.bind(this), 250, true);
-    // 🌟 1. 新增：保存 Obsidian 原版加载函数的引用
-    this.originalLoadFile = null;
   }
   async onload() {
     await this.loadSettings();
     this.isEditLocked = this.settings.defaultLocked;
     this.updateLockState();
-    this.patchMarkdownView();
+    this.patchObsidianViews();
     this.registerView(TIMELINE_VIEW_TYPE, (leaf) => new NovelTimelineView(leaf, this));
     this.addRibbonIcon("list-tree", "\u6253\u5F00\u5C0F\u8BF4\u4E8B\u4EF6\u65F6\u95F4\u7EBF", () => {
       this.activateTimelineView();
@@ -242,7 +255,6 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     }
   }
   onunload() {
-    this.unpatchMarkdownView();
     this.app.workspace.detachLeavesOfType(TIMELINE_VIEW_TYPE);
     if (this.hoverTimeout) window.clearTimeout(this.hoverTimeout);
     this.dynamicStyleElement.remove();
@@ -258,47 +270,50 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       }
     });
   }
-  // =====================================================
-  // 🌟 4. 新增方法：拦截原生加载，提前注入样式 (彻底消灭闪烁)
-  // =====================================================
-  patchMarkdownView() {
+  patchObsidianViews() {
     const plugin = this;
-    this.originalLoadFile = import_obsidian.MarkdownView.prototype.loadFile;
-    import_obsidian.MarkdownView.prototype.loadFile = async function(file) {
+    const applyProfileClassEarly = function(view, file) {
       try {
         if (plugin.checkIsTargetFile(file)) {
-          this.containerEl.classList.add("is-novel-profile");
+          view.containerEl.classList.add("is-novel-profile");
           const cache = plugin.app.metadataCache.getFileCache(file);
           if (cache && cache.frontmatter) {
-            plugin.updateImageState(this, file);
+            plugin.updateImageState(view, file);
           }
         } else {
-          this.containerEl.classList.remove("is-novel-profile");
-          this.containerEl.removeAttribute("data-has-image");
-          this.containerEl.style.removeProperty("--np-image-url");
+          view.containerEl.classList.remove("is-novel-profile");
+          view.containerEl.removeAttribute("data-has-image");
+          view.containerEl.style.removeProperty("--np-image-url");
         }
       } catch (e) {
-        console.error("Novel Profile Plugin: \u9884\u52A0\u8F7D\u6837\u5F0F\u62E6\u622A\u5931\u8D25", e);
       }
-      let result;
-      if (plugin.originalLoadFile) {
-        result = await plugin.originalLoadFile.apply(this, arguments);
-      }
-      try {
-        plugin.processAllLeaves();
-      } catch (e) {
-        console.error("Novel Profile Plugin: \u52A0\u8F7D\u540E\u5904\u7406\u5931\u8D25", e);
-      }
-      return result;
     };
+    const unpatchLeaf = around(import_obsidian.WorkspaceLeaf.prototype, {
+      setViewState(next) {
+        return async function(state, eState) {
+          if (state.type === "markdown" && state.state && state.state.file) {
+            const file = plugin.app.vault.getAbstractFileByPath(state.state.file);
+            if (file instanceof import_obsidian.TFile && this.view instanceof import_obsidian.MarkdownView) {
+              applyProfileClassEarly(this.view, file);
+            }
+          }
+          return next.call(this, state, eState);
+        };
+      }
+    });
+    const unpatchMarkdown = around(import_obsidian.MarkdownView.prototype, {
+      onLoadFile(next) {
+        return async function(file) {
+          applyProfileClassEarly(this, file);
+          const result = await next.call(this, file);
+          plugin.processAllLeaves();
+          return result;
+        };
+      }
+    });
+    this.register(unpatchLeaf);
+    this.register(unpatchMarkdown);
   }
-  unpatchMarkdownView() {
-    if (this.originalLoadFile) {
-      import_obsidian.MarkdownView.prototype.loadFile = this.originalLoadFile;
-      this.originalLoadFile = null;
-    }
-  }
-  // =====================================================
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     if (!this.settings.timelineVersions) this.settings.timelineVersions = {};
@@ -321,13 +336,6 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       if (isTargetFolder && hasFrontmatter) {
         container.classList.add("is-novel-profile");
         this.updateImageState(view, file);
-        const metadataContainer = container.querySelector(".metadata-container");
-        if (metadataContainer && metadataContainer.classList.contains("is-collapsed")) {
-          const heading = metadataContainer.querySelector(".metadata-properties-heading");
-          if (heading instanceof HTMLElement) {
-            heading.click();
-          }
-        }
       } else {
         container.classList.remove("is-novel-profile");
         container.removeAttribute("data-has-image");
@@ -354,6 +362,35 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
   }
   updateDynamicStyles() {
     let css = `:root { --np-image-width: ${this.settings.imageWidth}px; }`;
+    css += `
+			/* 1. \u7981\u7528\u539F\u751F\u7684\u5C5E\u6027\u6298\u53E0/\u5C55\u5F00\u52A8\u753B\uFF0C\u62D2\u7EDD\u62BD\u6410 */
+			body .is-novel-profile .metadata-container *,
+			body .is-novel-profile .metadata-property {
+				transition: none !important;
+				animation: none !important;
+			}
+
+			/* 2. \u{1F31F} \u4FEE\u590D\u6C38\u4E45\u9690\u8EABBug\uFF1A\u6B63\u786E\u63A7\u5236\u521D\u59CB\u900F\u660E\u5EA6\uFF0C0.4\u79D2\u540E\u5E73\u6ED1\u663E\u73B0 */
+			body .is-novel-profile .metadata-container:not(.is-collapsed) {
+				/* \u5173\u952E\u4FEE\u590D\uFF1A\u53BB\u6389\u57FA\u7840\u7C7B\u7684 opacity: 0\uFF0C\u5B8C\u5168\u4EA4\u7531 animation \u63A5\u7BA1 */
+				animation: np-stealth-mode 0.4s ease-out forwards !important;
+			}
+			@keyframes np-stealth-mode {
+				0% { opacity: 0; }
+				75% { opacity: 0; } /* \u524D 0.3 \u79D2\u7EDD\u5BF9\u9690\u8EAB\uFF0C\u6B64\u65F6 SimplyScroll \u6B63\u5728\u72C2\u5954 */
+				100% { opacity: 1; }
+			}
+
+			/* 3. \u710A\u6B7B\u9AD8\u5EA6\uFF1A\u5373\u4FBF\u9690\u8EAB\u4E5F\u8981\u5728\u7269\u7406\u4E0A\u5360\u4F4D\uFF0C\u4FDD\u8BC1 SimplyScroll \u6EDA\u8F6E\u8BA1\u7B97\u7EDD\u5BF9\u7CBE\u51C6 */
+			body .is-novel-profile[data-has-image="true"] .metadata-container:not(.is-collapsed)::before {
+				min-height: calc(var(--np-image-width, 150px) * 1.35) !important;
+			}
+
+			/* 4. \u{1F31F} \u6062\u590D\u6807\u9898\u680F\u53EF\u89C1\uFF1A\u628A\u539F\u751F\u7684\u5C0F\u7BAD\u5934\u8FD8\u7ED9\u4F60\uFF0C\u65B9\u4FBF\u4F60\u968F\u65F6\u624B\u52A8\u6298\u53E0\u5B83\uFF01 */
+			body .is-novel-profile .metadata-properties-heading {
+				display: flex !important;
+			}
+		`;
     if (this.settings.hidePropertyNames) {
       css += `
 				body .is-novel-profile .metadata-property-key,
@@ -791,7 +828,6 @@ var NovelTimelineView = class extends import_obsidian.ItemView {
       if (view) this.syncHighlightToLine(this.getVisibleLine(view), maintainScroll, false);
     }
   }
-  // 🌟 新增核心功能：安全地上下移动整个二级标题区块
   async moveTimelineSection(targetH2Line, direction) {
     if (!this.activeFile) return;
     const content = await this.app.vault.read(this.activeFile);
