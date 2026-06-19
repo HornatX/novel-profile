@@ -456,32 +456,38 @@ export default class NovelProfilePlugin extends Plugin {
 		let css = `:root { --np-image-width: ${this.settings.imageWidth}px; }`;
 
 		css += `
-			/* 1. 禁用原生的属性折叠/展开动画，拒绝抽搐 */
+			/* 1. 禁用所有抽搐动画 */
+			body .is-novel-profile .metadata-container,
 			body .is-novel-profile .metadata-container *,
 			body .is-novel-profile .metadata-property {
 				transition: none !important;
 				animation: none !important;
 			}
 
-			/* 2. 🌟 修复永久隐身Bug：正确控制初始透明度，0.4秒后平滑显现 */
+			/* 2. 🌟 彻底杀掉 "笔记属性" 这几个字及其标题栏，解决位移，还你纯净卡片 */
+			body .is-novel-profile .metadata-properties-heading {
+				display: none !important;
+			}
+
+			/* 3. 隐身斗篷：配合 SimplyScroll 落地，前 0.3 秒绝对透明 */
 			body .is-novel-profile .metadata-container:not(.is-collapsed) {
-				/* 关键修复：去掉基础类的 opacity: 0，完全交由 animation 接管 */
 				animation: np-stealth-mode 0.4s ease-out forwards !important;
 			}
 			@keyframes np-stealth-mode {
 				0% { opacity: 0; }
-				75% { opacity: 0; } /* 前 0.3 秒绝对隐身，此时 SimplyScroll 正在狂奔 */
+				75% { opacity: 0; }
 				100% { opacity: 1; }
 			}
 
-			/* 3. 焊死高度：即便隐身也要在物理上占位，保证 SimplyScroll 滚轮计算绝对精准 */
+			/* 4. 物理尺寸焊死，防止一条缝出现 */
 			body .is-novel-profile[data-has-image="true"] .metadata-container:not(.is-collapsed)::before {
 				min-height: calc(var(--np-image-width, 150px) * 1.35) !important;
 			}
 
-			/* 4. 🌟 恢复标题栏可见：把原生的小箭头还给你，方便你随时手动折叠它！ */
-			body .is-novel-profile .metadata-properties-heading {
-				display: flex !important;
+			/* 5. 调整卡片边距，让它在没有标题后更紧凑好看 */
+			body .is-novel-profile .metadata-container {
+				padding: 20px !important;
+				margin-top: 10px !important;
 			}
 		`;
 

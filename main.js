@@ -363,32 +363,38 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
   updateDynamicStyles() {
     let css = `:root { --np-image-width: ${this.settings.imageWidth}px; }`;
     css += `
-			/* 1. \u7981\u7528\u539F\u751F\u7684\u5C5E\u6027\u6298\u53E0/\u5C55\u5F00\u52A8\u753B\uFF0C\u62D2\u7EDD\u62BD\u6410 */
+			/* 1. \u7981\u7528\u6240\u6709\u62BD\u6410\u52A8\u753B */
+			body .is-novel-profile .metadata-container,
 			body .is-novel-profile .metadata-container *,
 			body .is-novel-profile .metadata-property {
 				transition: none !important;
 				animation: none !important;
 			}
 
-			/* 2. \u{1F31F} \u4FEE\u590D\u6C38\u4E45\u9690\u8EABBug\uFF1A\u6B63\u786E\u63A7\u5236\u521D\u59CB\u900F\u660E\u5EA6\uFF0C0.4\u79D2\u540E\u5E73\u6ED1\u663E\u73B0 */
+			/* 2. \u{1F31F} \u5F7B\u5E95\u6740\u6389 "\u7B14\u8BB0\u5C5E\u6027" \u8FD9\u51E0\u4E2A\u5B57\u53CA\u5176\u6807\u9898\u680F\uFF0C\u89E3\u51B3\u4F4D\u79FB\uFF0C\u8FD8\u4F60\u7EAF\u51C0\u5361\u7247 */
+			body .is-novel-profile .metadata-properties-heading {
+				display: none !important;
+			}
+
+			/* 3. \u9690\u8EAB\u6597\u7BF7\uFF1A\u914D\u5408 SimplyScroll \u843D\u5730\uFF0C\u524D 0.3 \u79D2\u7EDD\u5BF9\u900F\u660E */
 			body .is-novel-profile .metadata-container:not(.is-collapsed) {
-				/* \u5173\u952E\u4FEE\u590D\uFF1A\u53BB\u6389\u57FA\u7840\u7C7B\u7684 opacity: 0\uFF0C\u5B8C\u5168\u4EA4\u7531 animation \u63A5\u7BA1 */
 				animation: np-stealth-mode 0.4s ease-out forwards !important;
 			}
 			@keyframes np-stealth-mode {
 				0% { opacity: 0; }
-				75% { opacity: 0; } /* \u524D 0.3 \u79D2\u7EDD\u5BF9\u9690\u8EAB\uFF0C\u6B64\u65F6 SimplyScroll \u6B63\u5728\u72C2\u5954 */
+				75% { opacity: 0; }
 				100% { opacity: 1; }
 			}
 
-			/* 3. \u710A\u6B7B\u9AD8\u5EA6\uFF1A\u5373\u4FBF\u9690\u8EAB\u4E5F\u8981\u5728\u7269\u7406\u4E0A\u5360\u4F4D\uFF0C\u4FDD\u8BC1 SimplyScroll \u6EDA\u8F6E\u8BA1\u7B97\u7EDD\u5BF9\u7CBE\u51C6 */
+			/* 4. \u7269\u7406\u5C3A\u5BF8\u710A\u6B7B\uFF0C\u9632\u6B62\u4E00\u6761\u7F1D\u51FA\u73B0 */
 			body .is-novel-profile[data-has-image="true"] .metadata-container:not(.is-collapsed)::before {
 				min-height: calc(var(--np-image-width, 150px) * 1.35) !important;
 			}
 
-			/* 4. \u{1F31F} \u6062\u590D\u6807\u9898\u680F\u53EF\u89C1\uFF1A\u628A\u539F\u751F\u7684\u5C0F\u7BAD\u5934\u8FD8\u7ED9\u4F60\uFF0C\u65B9\u4FBF\u4F60\u968F\u65F6\u624B\u52A8\u6298\u53E0\u5B83\uFF01 */
-			body .is-novel-profile .metadata-properties-heading {
-				display: flex !important;
+			/* 5. \u8C03\u6574\u5361\u7247\u8FB9\u8DDD\uFF0C\u8BA9\u5B83\u5728\u6CA1\u6709\u6807\u9898\u540E\u66F4\u7D27\u51D1\u597D\u770B */
+			body .is-novel-profile .metadata-container {
+				padding: 20px !important;
+				margin-top: 10px !important;
 			}
 		`;
     if (this.settings.hidePropertyNames) {
