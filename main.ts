@@ -80,10 +80,16 @@ export default class NovelProfilePlugin extends Plugin {
 
 	debouncedProcessLeaves = debounce(this.processAllLeaves.bind(this), 250, true);
 
+	// 🌟 1. 新增：保存 Obsidian 原版加载函数的引用
+	originalLoadFile: Function | null = null;
+
 	async onload() {
 		await this.loadSettings();
 		this.isEditLocked = this.settings.defaultLocked;
 		this.updateLockState();
+
+		// 🌟 2. 新增：在插件刚启动时，立刻修补原生 MarkdownView 的加载逻辑
+		this.patchMarkdownView();
 
 		this.registerView(TIMELINE_VIEW_TYPE, (leaf) => new NovelTimelineView(leaf, this));
 
@@ -307,6 +313,9 @@ export default class NovelProfilePlugin extends Plugin {
 	}
 
 	onunload() {
+		// 🌟 3. 新增：插件卸载时，一定要还原原本的方法，避免影响其他插件
+		this.unpatchMarkdownView();
+
 		this.app.workspace.detachLeavesOfType(TIMELINE_VIEW_TYPE);
 
 		if (this.hoverTimeout) window.clearTimeout(this.hoverTimeout);
@@ -324,6 +333,58 @@ export default class NovelProfilePlugin extends Plugin {
 			}
 		});
 	}
+
+	// =====================================================
+	// 🌟 4. 新增方法：拦截原生加载，提前注入样式 (彻底消灭闪烁)
+	// =====================================================
+	patchMarkdownView() {
+		const plugin = this;
+		this.originalLoadFile = MarkdownView.prototype.loadFile;
+		
+		MarkdownView.prototype.loadFile = async function (file: TFile) {
+			// 【核心修复】在 Obsidian 真正去异步构建和渲染 DOM 之前，立刻同步打上插件的 Class。
+			// 这样当原版的属性面板插入到页面时，直接就会掉进我们设定好的 Flex 横排容器里，完全没有闪烁的空间！
+			try {
+				if (plugin.checkIsTargetFile(file)) {
+					this.containerEl.classList.add('is-novel-profile');
+					// 尽早同步尝试读取缓存获取图片
+					const cache = plugin.app.metadataCache.getFileCache(file);
+					if (cache && cache.frontmatter) {
+						plugin.updateImageState(this as unknown as MarkdownView, file);
+					}
+				} else {
+					this.containerEl.classList.remove('is-novel-profile');
+					this.containerEl.removeAttribute('data-has-image');
+					this.containerEl.style.removeProperty('--np-image-url');
+				}
+			} catch (e) {
+				console.error("Novel Profile Plugin: 预加载样式拦截失败", e);
+			}
+
+			// 等待原版的加载流程（这里面包含属性面板真实的 DOM 生成）
+			let result;
+			if (plugin.originalLoadFile) {
+				result = await plugin.originalLoadFile.apply(this, arguments);
+			}
+
+			// 加载完毕后，再走一遍全量的兜底处理（比如执行属性面板的展开折叠模拟点击）
+			try {
+				plugin.processAllLeaves();
+			} catch (e) {
+				console.error("Novel Profile Plugin: 加载后处理失败", e);
+			}
+
+			return result;
+		};
+	}
+
+	unpatchMarkdownView() {
+		if (this.originalLoadFile) {
+			MarkdownView.prototype.loadFile = this.originalLoadFile as any;
+			this.originalLoadFile = null;
+		}
+	}
+	// =====================================================
 
 	async loadSettings() {
 		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());

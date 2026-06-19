@@ -48,11 +48,14 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     this.hoverTimeout = null;
     this.activeCustomPopover = null;
     this.debouncedProcessLeaves = (0, import_obsidian.debounce)(this.processAllLeaves.bind(this), 250, true);
+    // 🌟 1. 新增：保存 Obsidian 原版加载函数的引用
+    this.originalLoadFile = null;
   }
   async onload() {
     await this.loadSettings();
     this.isEditLocked = this.settings.defaultLocked;
     this.updateLockState();
+    this.patchMarkdownView();
     this.registerView(TIMELINE_VIEW_TYPE, (leaf) => new NovelTimelineView(leaf, this));
     this.addRibbonIcon("list-tree", "\u6253\u5F00\u5C0F\u8BF4\u4E8B\u4EF6\u65F6\u95F4\u7EBF", () => {
       this.activateTimelineView();
@@ -239,6 +242,7 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
     }
   }
   onunload() {
+    this.unpatchMarkdownView();
     this.app.workspace.detachLeavesOfType(TIMELINE_VIEW_TYPE);
     if (this.hoverTimeout) window.clearTimeout(this.hoverTimeout);
     this.dynamicStyleElement.remove();
@@ -254,6 +258,47 @@ var NovelProfilePlugin = class extends import_obsidian.Plugin {
       }
     });
   }
+  // =====================================================
+  // 🌟 4. 新增方法：拦截原生加载，提前注入样式 (彻底消灭闪烁)
+  // =====================================================
+  patchMarkdownView() {
+    const plugin = this;
+    this.originalLoadFile = import_obsidian.MarkdownView.prototype.loadFile;
+    import_obsidian.MarkdownView.prototype.loadFile = async function(file) {
+      try {
+        if (plugin.checkIsTargetFile(file)) {
+          this.containerEl.classList.add("is-novel-profile");
+          const cache = plugin.app.metadataCache.getFileCache(file);
+          if (cache && cache.frontmatter) {
+            plugin.updateImageState(this, file);
+          }
+        } else {
+          this.containerEl.classList.remove("is-novel-profile");
+          this.containerEl.removeAttribute("data-has-image");
+          this.containerEl.style.removeProperty("--np-image-url");
+        }
+      } catch (e) {
+        console.error("Novel Profile Plugin: \u9884\u52A0\u8F7D\u6837\u5F0F\u62E6\u622A\u5931\u8D25", e);
+      }
+      let result;
+      if (plugin.originalLoadFile) {
+        result = await plugin.originalLoadFile.apply(this, arguments);
+      }
+      try {
+        plugin.processAllLeaves();
+      } catch (e) {
+        console.error("Novel Profile Plugin: \u52A0\u8F7D\u540E\u5904\u7406\u5931\u8D25", e);
+      }
+      return result;
+    };
+  }
+  unpatchMarkdownView() {
+    if (this.originalLoadFile) {
+      import_obsidian.MarkdownView.prototype.loadFile = this.originalLoadFile;
+      this.originalLoadFile = null;
+    }
+  }
+  // =====================================================
   async loadSettings() {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     if (!this.settings.timelineVersions) this.settings.timelineVersions = {};
